@@ -30,23 +30,23 @@
         /* 3D Canvas (Foreground for Animals) */
         #canvas-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; transition: filter 0.3s; pointer-events: none; }
 
-        /* 2D Bonus Canvas (Background for Hypnosis & Particles) */
+        /* 2D Bonus Canvas (Background) */
         #mini-game-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; display: none; }
 
-        /* --- BONUS LETTER DISPLAY (HTML instead of Canvas for reliability) --- */
+        /* --- BONUS LETTER DISPLAY --- */
         #bonus-letter-display {
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            font-size: 15rem; /* Huge! */
+            font-size: 15rem; 
             color: white;
             text-shadow: 0 4px 15px rgba(0,0,0,0.2);
             font-weight: bold;
-            z-index: 50; /* Above 3D scene */
+            z-index: 50; 
             animation: float 3s ease-in-out infinite;
             pointer-events: none;
-            display: none; /* Hidden by default */
+            display: none; 
         }
         #bonus-letter-display.visible { display: block; }
 
@@ -694,11 +694,14 @@
             // New Bonus Win Sound
             playBonusWin() {
                 if(!this.ready) return;
+                // PAUSE MAIN MUSIC
                 if(this.bgmPlayer && this.bgmPlayer.state === 'started') this.bgmPlayer.stop();
-                
-                // Use pre-loaded player
+                if(this.bgmSequence) { this.bgmSequence.stop(); }
+                if(this.waCtx && this.waCtx.state === 'running') this.waCtx.suspend();
+
+                // Play Bravo
                 if(this.bravoPlayer) {
-                    this.bravoPlayer.start(Tone.now(), 60, 5); // 60s offset, 5s duration
+                    this.bravoPlayer.start(Tone.now(), 60, 5); 
                 }
             }
 
@@ -878,6 +881,7 @@
             // --- BONUS MODE METHODS ---
             enterBonusMode() {
                 this.isBonusMode = true;
+                this.isBonusParty = false; // Reset party mode
                 this.mascot.visible = false;
                 this.npc.visible = false;
                 this.islands.forEach(i => i.visible = false);
@@ -888,6 +892,10 @@
                 
                 this.camera.position.set(0, 4, 14);
                 this.camera.lookAt(0, 0, 0);
+            }
+
+            startBonusParty() {
+                this.isBonusParty = true;
             }
 
             spawnBonusAnimal(index) {
@@ -924,8 +932,16 @@
                             const s = grp.userData.scale;
                             grp.scale.set(s,s,s);
                         }
-                        grp.position.y = -3 + Math.sin(time * 5 + i) * 0.2;
-                        grp.rotation.y = Math.sin(time * 2 + i) * 0.2;
+                        
+                        if (this.isBonusParty) {
+                            // PARTY MODE: Jump High & Spin Fast
+                            grp.position.y = -3 + Math.abs(Math.sin(time * 10 + i)) * 1.5;
+                            grp.rotation.y += delta * 5;
+                        } else {
+                            // NORMAL MODE: Bob & Slow Rotate
+                            grp.position.y = -3 + Math.sin(time * 5 + i) * 0.2;
+                            grp.rotation.y = Math.sin(time * 2 + i) * 0.2;
+                        }
                     });
                     this.renderer.render(this.scene, this.camera);
                     return; 
@@ -1039,7 +1055,7 @@
                 this.ui.bgContainer.style.display = 'none';
                 this.initBackgroundEffect('none');
                 this.ui.miniUi.classList.remove('hidden'); 
-                this.ui.bonusLetter.classList.add('visible'); // Show the HTML letter
+                this.ui.bonusLetter.classList.add('visible'); 
 
                 const canvas = document.getElementById('mini-game-canvas'); 
                 canvas.style.display = 'block';
@@ -1047,7 +1063,7 @@
                 
                 this.world.enterBonusMode();
 
-                // Generate sequence of 10 letters from level keys
+                // Generate sequence
                 const rawKeys = LEVELS[this.currentLevelIdx].keys; 
                 const possible = rawKeys.toLowerCase().replace("shift", "").replace(/[^a-z0-9äöüß]/g, "");
                 const sequence = [];
@@ -1059,17 +1075,18 @@
                 let winPhase = false;
                 let gameRunning = true;
 
-                // Set initial letter
                 this.ui.bonusLetter.textContent = sequence[0];
 
                 const createExplosion = (x, y) => { for(let i=0; i<30; i++) { particles.push({ x: x, y: y, vx: (Math.random() - 0.5) * 15, vy: (Math.random() - 0.5) * 15, life: 1.0, color: `hsl(${Math.random()*360}, 100%, 70%)`, type: 'dot' }); } };
                 
                 const winEffect = () => {
                     winPhase = true;
-                    this.ui.bonusLetter.classList.remove('visible'); // Hide letter
+                    this.ui.bonusLetter.classList.remove('visible'); 
                     this.audio.playBonusWin();
+                    this.world.startBonusParty(); // START PARTY MODE!
+
                     // Rain
-                    for(let i=0; i<300; i++) {
+                    for(let i=0; i<500; i++) { // More confetti
                         particles.push({
                             x: Math.random() * canvas.width,
                             y: Math.random() * -1000,
@@ -1086,7 +1103,7 @@
                 const endGame = () => {
                     gameRunning = false; window.removeEventListener('keydown', miniHandler); 
                     canvas.style.display = 'none'; this.ui.miniUi.classList.add('hidden'); 
-                    this.ui.bonusLetter.classList.remove('visible'); // Ensure hidden
+                    this.ui.bonusLetter.classList.remove('visible'); 
                     this.ui.buttons.skip.onclick = null; 
                     this.world.leaveBonusMode(); 
                     if(this.audio.bravoPlayer) { this.audio.bravoPlayer.stop(); this.audio.updateBGM(); } 
@@ -1101,26 +1118,22 @@
                     
                     const needed = sequence[currentIndex];
                     if (e.key.toLowerCase() === needed) {
-                        // Correct!
                         const cx = window.innerWidth/2; const cy = window.innerHeight/2;
                         createExplosion(cx, cy);
                         this.world.spawnBonusAnimal(currentIndex);
                         this.audio.playCorrect(currentIndex);
                         
-                        // Pop animation for the HTML element
                         this.ui.bonusLetter.classList.remove('char-appear');
-                        void this.ui.bonusLetter.offsetWidth; // Trigger reflow
+                        void this.ui.bonusLetter.offsetWidth; 
                         this.ui.bonusLetter.classList.add('char-appear');
 
                         currentIndex++;
                         if(currentIndex >= 10) {
                              winEffect();
                         } else {
-                             // Next letter
                              this.ui.bonusLetter.textContent = sequence[currentIndex];
                         }
                     } else {
-                        // Wrong
                         this.audio.playWrong();
                         this.ui.bonusLetter.classList.add('shake'); 
                         setTimeout(() => this.ui.bonusLetter.classList.remove('shake'), 300);
@@ -1128,24 +1141,25 @@
                 };
                 window.addEventListener('keydown', miniHandler);
                 
-                // Canvas loop only for background and particles now
                 const loop = () => {
                     if (!gameRunning) return;
                     canvas.width = window.innerWidth; canvas.height = window.innerHeight; 
                     const time = Date.now() * 0.001;
                     const cx = canvas.width/2; const cy = canvas.height/2;
 
-                    // Background
+                    // Background Speed Up on Win
+                    const bgSpeed = winPhase ? 500 : 50;
+
                     const gradient = ctx.createRadialGradient(cx, cy, 10, cx, cy, canvas.width);
-                    gradient.addColorStop(0, `hsl(${(time*50)%360}, 70%, 80%)`);
-                    gradient.addColorStop(0.5, `hsl(${(time*50 + 120)%360}, 70%, 70%)`);
-                    gradient.addColorStop(1, `hsl(${(time*50 + 240)%360}, 70%, 60%)`);
+                    gradient.addColorStop(0, `hsl(${(time*bgSpeed)%360}, 70%, 80%)`);
+                    gradient.addColorStop(0.5, `hsl(${(time*bgSpeed + 120)%360}, 70%, 70%)`);
+                    gradient.addColorStop(1, `hsl(${(time*bgSpeed + 240)%360}, 70%, 60%)`);
                     ctx.fillStyle = gradient;
                     ctx.fillRect(0,0, canvas.width, canvas.height);
                     
                     ctx.save();
                     ctx.translate(cx, cy);
-                    ctx.rotate(time * 0.5);
+                    ctx.rotate(time * (winPhase ? 2.0 : 0.5)); // Spin faster on win
                     for(let r=0; r<canvas.width; r+=100) {
                         ctx.beginPath(); ctx.arc(0, 0, r + (Math.sin(time)*50), 0, Math.PI*2);
                         ctx.strokeStyle = "rgba(255,255,255,0.2)"; ctx.lineWidth = 20; ctx.stroke();
@@ -1163,7 +1177,6 @@
                         if(p.life <= 0) { particles.splice(i, 1); i--; } 
                     }
 
-                    // BRAVO Text on Canvas (Letter is HTML now)
                     if(winPhase) {
                         ctx.font = "bold 100px Fredoka"; 
                         ctx.fillStyle = "gold"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
