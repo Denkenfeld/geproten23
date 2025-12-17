@@ -27,10 +27,10 @@
 
         body { margin: 0; overflow: hidden; font-family: 'Fredoka', sans-serif; background-color: #E2F0CB; color: var(--text); user-select: none; }
         
-        /* 3D Canvas (Foreground for Animals) */
+        /* 3D Canvas (Foreground for Animals) - Z-Index High */
         #canvas-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; transition: filter 0.3s; pointer-events: none; }
 
-        /* 2D Bonus Canvas (Background for Hypnosis) */
+        /* 2D Bonus Canvas (Background for Hypnosis & Letters) - Z-Index Low */
         #mini-game-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; display: none; }
 
         /* --- GLOBAL BACKGROUND (Main Game) --- */
@@ -1100,7 +1100,10 @@
                 const miniHandler = (e) => {
                     if(e.key === "Escape") { endGame(); return; }
                     if(winPhase) return;
-                    const char = e.key; const idx = letters.findIndex(l => l.char === char && l.y < canvas.height - 50);
+                    
+                    const char = e.key.toLowerCase(); 
+                    const idx = letters.findIndex(l => l.char === char && l.y < canvas.height - 50);
+                    
                     if (idx > -1) { 
                         const l = letters[idx]; 
                         createExplosion(l.x, l.y); 
@@ -1162,9 +1165,10 @@
                         if(p.life <= 0) { particles.splice(i, 1); i--; } 
                     }
 
-                    // Letters
+                    // Letters (Draw HUGE)
                     if(!winPhase) {
-                        ctx.font = "bold 250px Fredoka"; ctx.fillStyle = "white"; ctx.shadowColor="rgba(0,0,0,0.3)"; ctx.shadowBlur=10;
+                        ctx.font = "bold 250px Fredoka"; // Set Font inside Loop!
+                        ctx.fillStyle = "white"; ctx.shadowColor="rgba(0,0,0,0.3)"; ctx.shadowBlur=10;
                         for (let i = 0; i < letters.length; i++) { 
                             const l = letters[i]; l.y += l.speed; 
                             ctx.fillText(l.char, l.x, l.y); 
