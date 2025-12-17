@@ -26,12 +26,17 @@
         }
 
         body { margin: 0; overflow: hidden; font-family: 'Fredoka', sans-serif; background-color: #E2F0CB; color: var(--text); user-select: none; }
-        #canvas-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; transition: filter 0.3s; }
+        
+        /* 3D Canvas (Foreground for Animals) */
+        #canvas-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; transition: filter 0.3s; pointer-events: none; }
 
-        /* --- GLOBAL BACKGROUND --- */
+        /* 2D Bonus Canvas (Background for Hypnosis) */
+        #mini-game-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; display: none; }
+
+        /* --- GLOBAL BACKGROUND (Main Game) --- */
         #global-bg {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
-            z-index: 90; 
+            z-index: 0; 
             background: linear-gradient(120deg, #FF9AA2, #FFB7B2, #FFDAC1, #E2F0CB, #B5EAD7, #C7CEEA);
             background-size: 400% 400%;
             animation: rainbowBG 15s ease infinite;
@@ -171,7 +176,7 @@
 <body>
 
     <div id="canvas-container"></div>
-    <canvas id="mini-game-canvas" style="position: absolute; top:0; left:0; width:100%; height:100%; display:none; z-index:50;"></canvas>
+    <canvas id="mini-game-canvas"></canvas>
     
     <div id="global-bg">
         <canvas id="bg-canvas"></canvas>
@@ -742,6 +747,9 @@
                 this.mascot = new THREE.Group(); this.scene.add(this.mascot); 
                 this.npc = new THREE.Group(); this.scene.add(this.npc); 
                 
+                // Bonus Group
+                this.bonusGroup = new THREE.Group(); this.scene.add(this.bonusGroup);
+
                 this.animMode = 'jump'; this.setMascot("fox"); this.setTheme("forest");
                 this.createEnvironment(); this.createParticles();
                 
@@ -780,7 +788,9 @@
                 const matDark = new THREE.MeshStandardMaterial({ color: 0x333333 });
                 const eyeL = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.25, 0.1), matDark); eyeL.position.set(-0.35, 2.1, 0.7); group.add(eyeL);
                 const eyeR = eyeL.clone(); eyeR.position.set(0.35, 2.1, 0.7); group.add(eyeR);
-                if(group === this.mascot) { this.eyeL = eyeL; this.eyeR = eyeR; this.snout = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.3, 0.2), new THREE.MeshStandardMaterial({ color:0xffffff })); this.snout.position.set(0, 1.8, 0.75); group.add(this.snout); }
+                if(group === this.mascot || group.isBonus) { // Small snout for bonus animals too
+                    this.eyeL = eyeL; this.eyeR = eyeR; this.snout = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.3, 0.2), new THREE.MeshStandardMaterial({ color:0xffffff })); this.snout.position.set(0, 1.8, 0.75); group.add(this.snout); 
+                }
             }
             setMascot(type) {
                 if (type === 'random') { const types = ['fox', 'unicorn', 'bear', 'bunny', 'cat', 'pig', 'robot']; type = types[Math.floor(Math.random() * types.length)]; }
@@ -811,7 +821,7 @@
                 geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( vertices, 3 ) ); this.particles = new THREE.Points( geometry, new THREE.PointsMaterial( { color: 0xFFFFFF, size: 0.1 } ) ); this.scene.add( this.particles );
             }
             triggerReaction() {
-                if(this.animMode === 'chase') return; 
+                if(this.animMode === 'chase' || this.isBonusMode) return; 
                 let mode = this.animMode;
                 if(mode === 'random') { const modes = ['jump', 'wink', 'spin', 'mouth', 'grow', 'shrink']; mode = modes[Math.floor(Math.random() * modes.length)]; }
                 if(mode === 'spin') { if (!this.isSpinning) { this.isSpinning = true; this.mascot.rotation.y = 0; } }
@@ -846,8 +856,80 @@
                 this.mascot.rotation.y = Math.PI / 2;
                 this.npc.rotation.y = Math.PI / 2;
             }
+
+            // --- BONUS MODE METHODS ---
+            enterBonusMode() {
+                this.isBonusMode = true;
+                // Hide main elements
+                this.mascot.visible = false;
+                this.npc.visible = false;
+                this.islands.forEach(i => i.visible = false);
+                this.particles.visible = false;
+                
+                // Clear old bonus stuff
+                while(this.bonusGroup.children.length > 0) this.bonusGroup.remove(this.bonusGroup.children[0]);
+                this.bonusGroup.visible = true;
+                
+                // Adjust Camera for wide shot
+                this.camera.position.set(0, 4, 14);
+                this.camera.lookAt(0, 0, 0);
+            }
+
+            spawnBonusAnimal(index) {
+                const types = ['fox', 'unicorn', 'bear', 'bunny', 'cat', 'pig', 'dog_billy', 'dog_luni', 'dog_charlie', 'robot'];
+                const type = types[index % types.length];
+                
+                const group = new THREE.Group();
+                group.isBonus = true; // Flag for createCharacter to add snout
+                this.createCharacter(type, group);
+                
+                // Position in line: -10 to +10
+                const xPos = -10 + (index * 2.2);
+                group.position.set(xPos, -3, 0);
+                group.scale.set(0,0,0); // Start small for pop-in
+                
+                // Look at camera
+                group.rotation.y = 0; 
+
+                this.bonusGroup.add(group);
+
+                // Pop-in animation logic handled in animate
+                group.userData = { scale: 0, targetScale: 0.8 };
+            }
+
+            leaveBonusMode() {
+                this.isBonusMode = false;
+                this.bonusGroup.visible = false;
+                this.mascot.visible = true;
+                this.islands.forEach(i => i.visible = true);
+                this.particles.visible = true;
+                
+                // Reset Camera
+                this.camera.position.set(0, 2, 8);
+                this.camera.lookAt(0, 1, 0);
+            }
+
             animate() {
                 requestAnimationFrame(() => this.animate()); const delta = this.clock.getDelta(); const time = this.clock.getElapsedTime();
+                
+                if (this.isBonusMode) {
+                    // Animate bonus animals
+                    this.bonusGroup.children.forEach((grp, i) => {
+                        // Pop in
+                        if(grp.userData.scale < grp.userData.targetScale) {
+                            grp.userData.scale += delta * 3;
+                            const s = grp.userData.scale;
+                            grp.scale.set(s,s,s);
+                        }
+                        // Bobbing
+                        grp.position.y = -3 + Math.sin(time * 5 + i) * 0.2;
+                        // Rotate slightly
+                        grp.rotation.y = Math.sin(time * 2 + i) * 0.2;
+                    });
+                    this.renderer.render(this.scene, this.camera);
+                    return; // Skip normal animation logic
+                }
+
                 if(this.animMode === 'chase') {
                     this.npc.visible = true;
                     if (!this.isJumping) this.mascot.position.y = Math.abs(Math.sin(time * 10)) * 0.2; 
@@ -890,7 +972,7 @@
                 this.kbLayout = 'macbook';
                 this.kbColor = 'fingers';
                 this.kbError = 'flash';
-                this.explEnabled = 'grow'; // Default
+                this.explEnabled = 'grow'; 
                 this.streak = 0; 
 
                 this.shiftMap = {
@@ -955,9 +1037,15 @@
                 this.ui.bgContainer.style.display = 'none';
                 this.initBackgroundEffect('none');
                 this.ui.miniUi.classList.remove('hidden'); 
-                const canvas = document.getElementById('mini-game-canvas'); canvas.style.display = 'block';
+                
+                // 2D Canvas for Background/Letters
+                const canvas = document.getElementById('mini-game-canvas'); 
+                canvas.style.display = 'block';
                 const ctx = canvas.getContext('2d'); 
                 
+                // Switch 3D World to Bonus Mode
+                this.world.enterBonusMode();
+
                 // Keys: Lowercase only, alphanumeric
                 const rawKeys = LEVELS[this.currentLevelIdx].keys; 
                 const possible = rawKeys.toLowerCase().replace("shift", "").replace(/[^a-z0-9äöüß]/g, "");
@@ -965,7 +1053,6 @@
                 let gameRunning = true; 
                 const letters = []; 
                 let particles = []; 
-                const animals = []; // Spawned animals
                 const animalEmojis = ['🦊', '🦄', '🐻', '🐰', '🐱', '🐷', '🤖', '🐶', '🐕', '🐩'];
                 let fedCount = 0; 
                 const maxFed = 10;
@@ -983,7 +1070,7 @@
                     winPhase = true;
                     // Play Bravo Song
                     this.audio.playBonusWin();
-                    // Spawn animal rain
+                    // Spawn animal rain (2D Emojis only for rain effect)
                     for(let i=0; i<300; i++) {
                         particles.push({
                             x: Math.random() * canvas.width,
@@ -1001,6 +1088,9 @@
                 const endGame = () => {
                     gameRunning = false; clearInterval(spawner); window.removeEventListener('keydown', miniHandler); 
                     canvas.style.display = 'none'; this.ui.miniUi.classList.add('hidden'); this.ui.buttons.skip.onclick = null; 
+                    
+                    this.world.leaveBonusMode(); // Reset 3D World
+
                     if(this.audio.bravoPlayer) { this.audio.bravoPlayer.stop(); this.audio.updateBGM(); } // Resume BGM
                     if(!this.ui.buttons.directNext.classList.contains('hidden')) this.startLevel(this.currentLevelIdx + 1); else this.showScreen('level');
                 };
@@ -1015,9 +1105,11 @@
                         const l = letters[idx]; 
                         createExplosion(l.x, l.y); 
                         letters.splice(idx, 1); 
+                        
+                        // Spawn Real 3D Animal
+                        this.world.spawnBonusAnimal(fedCount);
+                        
                         fedCount++; 
-                        // Add animal
-                        animals.push({ x: 50 + (fedCount-1)* (canvas.width/12), y: canvas.height - 100, icon: animalEmojis[fedCount % animalEmojis.length] });
                         this.audio.playCorrect(fedCount); 
                         if(fedCount >= maxFed) winEffect(); 
                     }
@@ -1079,12 +1171,6 @@
                             if (l.y > canvas.height + 200) { letters.splice(i, 1); i--; } 
                         }
                         ctx.shadowBlur=0;
-                    }
-
-                    // Animals
-                    ctx.font = "80px serif";
-                    for(let a of animals) {
-                        ctx.fillText(a.icon, a.x, a.y);
                     }
 
                     requestAnimationFrame(loop);
