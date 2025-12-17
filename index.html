@@ -273,9 +273,9 @@
             <div class="setting-group">
                 <label>💥 Treffer-Effekt</label>
                 <select id="sel-expl">
-                    <option value="on" selected>Feuerwerk & Einblenden</option>
+                    <option value="on">Feuerwerk & Einblenden</option>
                     <option value="ultra">ULTRA Explosion 🔥</option>
-                    <option value="grow">Grow (Serie wächst) 🌱</option>
+                    <option value="grow" selected>Grow (Serie wächst) 🌱</option>
                     <option value="off">Sofort ersetzen (Aus)</option>
                 </select>
             </div>
@@ -530,7 +530,7 @@
             constructor() {
                 this.ready = false; 
                 this.sfxType = 'click'; 
-                this.bgmType = 'keychill'; // Default neu
+                this.bgmType = 'keychill'; 
                 this.musicVol = 0; this.sfxVol = 0; // dB
                 
                 this.reverb = new Tone.Reverb({ decay: 2, wet: 0.3 }).toDestination();
@@ -545,7 +545,8 @@
                 
                 this.scale = ["C4", "D4", "E4", "F4", "G4", "A4", "B4", "C5", "D5", "E5"];
                 this.bgmSequence = null;
-                this.bgmPlayer = null; // Für MP3
+                this.bgmPlayer = null; 
+                this.bravoPlayer = null; // Für Win
 
                 // Web Audio Custom
                 this.waCtx = null;
@@ -663,10 +664,24 @@
             playWin() { if (!this.ready || this.sfxType === 'off') return; const now = Tone.now(); this.poly.set({ oscillator: { type: "triangle" } }); this.poly.triggerAttackRelease("C4", "16n", now); this.poly.triggerAttackRelease("E4", "16n", now + 0.1); this.poly.triggerAttackRelease("G4", "16n", now + 0.2); this.poly.triggerAttackRelease("C5", "4n", now + 0.3); }
             playSuperWin() { if (!this.ready || this.sfxType === 'off') return; const now = Tone.now(); this.poly.set({ oscillator: { type: "sawtooth" } }); ["C3","E3","G3","C4","E4","G4","C5"].forEach((n,i) => this.poly.triggerAttackRelease(n, "8n", now + i*0.1)); }
             
+            // New Bonus Win Sound
+            playBonusWin() {
+                if(!this.ready) return;
+                // Temporarily pause BGM if playing
+                if(this.bgmPlayer && this.bgmPlayer.state === 'started') this.bgmPlayer.stop();
+                
+                this.bravoPlayer = new Tone.Player({
+                    url: "bravo.mp3",
+                    autostart: true,
+                    volume: -5
+                }).toDestination();
+                // Start at 60s, play for 5s
+                this.bravoPlayer.start(Tone.now(), 60, 5);
+            }
+
             updateBGM() {
                 if (!this.ready) return; 
                 
-                // Reset old BGM
                 if (this.bgmSequence) { this.bgmSequence.dispose(); this.bgmSequence = null; }
                 if (this.waLoopId) clearTimeout(this.waLoopId);
                 if (this.waCtx && this.waCtx.state === 'running') this.waCtx.suspend();
@@ -674,10 +689,8 @@
 
                 if (this.bgmType === 'off') { Tone.Transport.stop(); return; }
 
-                // New MP3 Handling
                 if (this.bgmType === 'keychill') {
                     Tone.Transport.stop();
-                    // Tone.Player loads the file
                     this.bgmPlayer = new Tone.Player({
                         url: "keychill.mp3",
                         loop: true,
@@ -732,7 +745,6 @@
                 this.animMode = 'jump'; this.setMascot("fox"); this.setTheme("forest");
                 this.createEnvironment(); this.createParticles();
                 
-                // Chase state: player runs left to right, npc runs too. Now independent control.
                 this.chaseState = { playerX: -8, npcX: -10, dirPlayer: 1, dirNpc: 1 };
 
                 window.addEventListener('resize', () => this.onResize());
@@ -799,50 +811,36 @@
                 geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( vertices, 3 ) ); this.particles = new THREE.Points( geometry, new THREE.PointsMaterial( { color: 0xFFFFFF, size: 0.1 } ) ); this.scene.add( this.particles );
             }
             triggerReaction() {
-                // If not chase mode, trigger animations
                 if(this.animMode === 'chase') return; 
-
                 let mode = this.animMode;
                 if(mode === 'random') { const modes = ['jump', 'wink', 'spin', 'mouth', 'grow', 'shrink']; mode = modes[Math.floor(Math.random() * modes.length)]; }
-                
-                if(mode === 'spin') { 
-                    if (!this.isSpinning) { this.isSpinning = true; this.mascot.rotation.y = 0; }
-                }
+                if(mode === 'spin') { if (!this.isSpinning) { this.isSpinning = true; this.mascot.rotation.y = 0; } }
                 else if(mode === 'jump') { this.jumpTime = 0; this.isJumping = true; }
                 else if(mode === 'wink') { this.winkTime = 0; this.isWinking = true; }
                 else if(mode === 'mouth') { this.mouthTime = 0; this.isMouthing = true; }
                 else if(mode === 'grow') { this.scaleTime = 0; this.isGrowing = true; }
                 else if(mode === 'shrink') { this.scaleTime = 0; this.isShrinking = true; }
             }
-            
-            // New Chase Movement Logic
             stepChase(who) {
                 if(this.animMode !== 'chase') return;
-                
                 const step = 1.5; 
                 if(who === 'player') {
                     this.chaseState.playerX += step * this.chaseState.dirPlayer;
-                    // Ping Pong check
                     if(Math.abs(this.chaseState.playerX) > 12) {
                         this.chaseState.dirPlayer *= -1;
                         this.mascot.rotation.y = this.chaseState.dirPlayer > 0 ? Math.PI / 2 : -Math.PI / 2;
                     }
-                    this.mascot.position.y = 1; 
-                    setTimeout(() => this.mascot.position.y = 0, 200); // Small jump
-                } 
-                else if(who === 'npc') {
+                    this.mascot.position.y = 1; setTimeout(() => this.mascot.position.y = 0, 200); 
+                } else if(who === 'npc') {
                     this.chaseState.npcX += step * this.chaseState.dirNpc;
                     if(Math.abs(this.chaseState.npcX) > 12) {
                         this.chaseState.dirNpc *= -1;
                         this.npc.rotation.y = this.chaseState.dirNpc > 0 ? Math.PI / 2 : -Math.PI / 2;
                     }
                 }
-                
-                // Update positions immediately
                 this.mascot.position.x = this.chaseState.playerX;
                 this.npc.position.x = this.chaseState.npcX;
             }
-
             resetChase() {
                 this.chaseState = { playerX: -8, npcX: -10, dirPlayer: 1, dirNpc: 1 };
                 this.mascot.rotation.y = Math.PI / 2;
@@ -850,34 +848,23 @@
             }
             animate() {
                 requestAnimationFrame(() => this.animate()); const delta = this.clock.getDelta(); const time = this.clock.getElapsedTime();
-                
                 if(this.animMode === 'chase') {
                     this.npc.visible = true;
-                    // No automatic movement for X anymore!
-                    // Just idle animation (breathing/bobbing)
-                    if (!this.isJumping) this.mascot.position.y = Math.abs(Math.sin(time * 10)) * 0.2; // Idle bob
-                    this.npc.position.y = Math.abs(Math.sin(time * 8)) * 0.2; // Idle bob
-                    
+                    if (!this.isJumping) this.mascot.position.y = Math.abs(Math.sin(time * 10)) * 0.2; 
+                    this.npc.position.y = Math.abs(Math.sin(time * 8)) * 0.2; 
                     this.mascot.position.x = this.chaseState.playerX;
                     this.npc.position.x = this.chaseState.npcX;
                     this.mascot.position.z = 1; this.npc.position.z = 1;
-
                 } else {
                     this.npc.visible = false;
                     this.mascot.position.x = 0; this.mascot.position.z = 0;
                     if (this.isJumping) { this.jumpTime += delta * 5; this.mascot.position.y = Math.sin(this.jumpTime) * 1.5; if(this.jumpTime > Math.PI) { this.isJumping = false; this.mascot.position.y = 0; } } 
                     else if (this.isWinking) { this.winkTime += delta * 10; const s = Math.max(0.1, Math.cos(this.winkTime)); this.eyeL.scale.y = s; this.eyeR.scale.y = s; if(this.winkTime > Math.PI * 2) { this.isWinking = false; this.eyeL.scale.y = 1; this.eyeR.scale.y = 1; } }
-                    else if(this.isSpinning) { 
-                        this.mascot.rotation.y += delta * 12; 
-                        if(this.mascot.rotation.y >= Math.PI * 2) { this.isSpinning = false; this.mascot.rotation.y = 0; } 
-                    }
+                    else if(this.isSpinning) { this.mascot.rotation.y += delta * 12; if(this.mascot.rotation.y >= Math.PI * 2) { this.isSpinning = false; this.mascot.rotation.y = 0; } }
                     else if(this.isMouthing) { this.mouthTime += delta * 15; this.snout.position.z = 0.75 + Math.sin(this.mouthTime) * 0.1; if(this.mouthTime > Math.PI * 2) { this.isMouthing = false; this.snout.position.z = 0.75; } }
                     else if(this.isGrowing) { this.scaleTime += delta * 5; const s = 1 + Math.sin(this.scaleTime) * 0.3; this.mascot.scale.set(s,s,s); if(this.scaleTime > Math.PI) { this.isGrowing = false; this.mascot.scale.set(1,1,1); } }
                     else if(this.isShrinking) { this.scaleTime += delta * 5; const s = 1 - Math.sin(this.scaleTime) * 0.3; this.mascot.scale.set(s,s,s); if(this.scaleTime > Math.PI) { this.isShrinking = false; this.mascot.scale.set(1,1,1); } }
-                    else { 
-                        this.mascot.position.y = Math.sin(time * 1.5) * 0.2; 
-                        this.mascot.rotation.y = 0;
-                    }
+                    else { this.mascot.position.y = Math.sin(time * 1.5) * 0.2; this.mascot.rotation.y = 0; }
                 }
                 if(this.particles) this.particles.rotation.y += 0.001; this.renderer.render(this.scene, this.camera);
             }
@@ -903,8 +890,8 @@
                 this.kbLayout = 'macbook';
                 this.kbColor = 'fingers';
                 this.kbError = 'flash';
-                this.explEnabled = 'on';
-                this.streak = 0; // New Streak Counter
+                this.explEnabled = 'grow'; // Default
+                this.streak = 0; 
 
                 this.shiftMap = {
                     "^": "°", "1": "!", "2": "\"", "3": "§", "4": "$", "5": "%",
@@ -960,224 +947,237 @@
                 this.renderLevelSelect();
             }
 
+            // ... (Rest of game methods stay same) ...
+            
+            // --- UPDATED BONUS GAME ---
+            startMiniGame() {
+                this.showScreen('none');
+                this.ui.bgContainer.style.display = 'none';
+                this.initBackgroundEffect('none');
+                this.ui.miniUi.classList.remove('hidden'); 
+                const canvas = document.getElementById('mini-game-canvas'); canvas.style.display = 'block';
+                const ctx = canvas.getContext('2d'); 
+                
+                // Keys: Lowercase only, alphanumeric
+                const rawKeys = LEVELS[this.currentLevelIdx].keys; 
+                const possible = rawKeys.toLowerCase().replace("shift", "").replace(/[^a-z0-9äöüß]/g, "");
+                
+                let gameRunning = true; 
+                const letters = []; 
+                let particles = []; 
+                const animals = []; // Spawned animals
+                const animalEmojis = ['🦊', '🦄', '🐻', '🐰', '🐱', '🐷', '🤖', '🐶', '🐕', '🐩'];
+                let fedCount = 0; 
+                const maxFed = 10;
+                let winPhase = false;
+
+                const spawner = setInterval(() => {
+                    if (!gameRunning || winPhase) return;
+                    const char = possible.length > 0 ? possible.charAt(Math.floor(Math.random() * possible.length)) : "a"; 
+                    letters.push({ char: char, x: Math.random() * (canvas.width - 200) + 100, y: -250, speed: 2 + Math.random() * 3 });
+                }, 1000);
+
+                const createExplosion = (x, y) => { for(let i=0; i<30; i++) { particles.push({ x: x, y: y, vx: (Math.random() - 0.5) * 10, vy: (Math.random() - 0.5) * 10, life: 1.0, color: `hsl(${Math.random()*360}, 100%, 70%)`, type: 'dot' }); } };
+                
+                const winEffect = () => {
+                    winPhase = true;
+                    // Play Bravo Song
+                    this.audio.playBonusWin();
+                    // Spawn animal rain
+                    for(let i=0; i<300; i++) {
+                        particles.push({
+                            x: Math.random() * canvas.width,
+                            y: Math.random() * -1000,
+                            vx: 0,
+                            vy: 2 + Math.random() * 5,
+                            life: 5.0, // Lasts long
+                            type: 'emoji',
+                            icon: animalEmojis[Math.floor(Math.random() * animalEmojis.length)]
+                        });
+                    }
+                    setTimeout(endGame, 5000);
+                };
+
+                const endGame = () => {
+                    gameRunning = false; clearInterval(spawner); window.removeEventListener('keydown', miniHandler); 
+                    canvas.style.display = 'none'; this.ui.miniUi.classList.add('hidden'); this.ui.buttons.skip.onclick = null; 
+                    if(this.audio.bravoPlayer) { this.audio.bravoPlayer.stop(); this.audio.updateBGM(); } // Resume BGM
+                    if(!this.ui.buttons.directNext.classList.contains('hidden')) this.startLevel(this.currentLevelIdx + 1); else this.showScreen('level');
+                };
+                
+                this.ui.buttons.skip.onclick = () => endGame();
+                
+                const miniHandler = (e) => {
+                    if(e.key === "Escape") { endGame(); return; }
+                    if(winPhase) return;
+                    const char = e.key; const idx = letters.findIndex(l => l.char === char && l.y < canvas.height - 50);
+                    if (idx > -1) { 
+                        const l = letters[idx]; 
+                        createExplosion(l.x, l.y); 
+                        letters.splice(idx, 1); 
+                        fedCount++; 
+                        // Add animal
+                        animals.push({ x: 50 + (fedCount-1)* (canvas.width/12), y: canvas.height - 100, icon: animalEmojis[fedCount % animalEmojis.length] });
+                        this.audio.playCorrect(fedCount); 
+                        if(fedCount >= maxFed) winEffect(); 
+                    }
+                };
+                window.addEventListener('keydown', miniHandler);
+                
+                const loop = () => {
+                    if (!gameRunning) return;
+                    canvas.width = window.innerWidth; canvas.height = window.innerHeight; // Handle resize
+                    const time = Date.now() * 0.001;
+
+                    // Hypnosis Background
+                    const cx = canvas.width/2; const cy = canvas.height/2;
+                    const gradient = ctx.createRadialGradient(cx, cy, 10, cx, cy, canvas.width);
+                    gradient.addColorStop(0, `hsl(${(time*50)%360}, 70%, 80%)`);
+                    gradient.addColorStop(0.5, `hsl(${(time*50 + 120)%360}, 70%, 70%)`);
+                    gradient.addColorStop(1, `hsl(${(time*50 + 240)%360}, 70%, 60%)`);
+                    ctx.fillStyle = gradient;
+                    ctx.fillRect(0,0, canvas.width, canvas.height);
+                    
+                    // Spirals
+                    ctx.save();
+                    ctx.translate(cx, cy);
+                    ctx.rotate(time * 0.5);
+                    for(let r=0; r<canvas.width; r+=100) {
+                        ctx.beginPath(); ctx.arc(0, 0, r + (Math.sin(time)*50), 0, Math.PI*2);
+                        ctx.strokeStyle = "rgba(255,255,255,0.2)"; ctx.lineWidth = 20; ctx.stroke();
+                    }
+                    ctx.restore();
+
+                    // Status
+                    if(!winPhase) {
+                        ctx.fillStyle = "white"; ctx.font = "bold 40px Fredoka"; 
+                        ctx.fillText(`Tiere retten: ${fedCount}/${maxFed}`, cx - 150, 80);
+                    } else {
+                        ctx.fillStyle = "gold"; ctx.font = "bold 80px Fredoka"; 
+                        ctx.shadowColor="black"; ctx.shadowBlur=20;
+                        ctx.fillText("BRAVO!!!", cx - 150, cy);
+                        ctx.shadowBlur=0;
+                    }
+
+                    // Particles
+                    for (let i = 0; i < particles.length; i++) { 
+                        const p = particles[i]; p.x += p.vx; p.y += p.vy; p.life -= 0.01; 
+                        if(p.type === 'emoji') {
+                            ctx.font = "40px serif"; ctx.fillText(p.icon, p.x, p.y);
+                        } else {
+                            ctx.globalAlpha = p.life; ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI*2); ctx.fill(); ctx.globalAlpha = 1.0; 
+                        }
+                        if(p.life <= 0) { particles.splice(i, 1); i--; } 
+                    }
+
+                    // Letters
+                    if(!winPhase) {
+                        ctx.font = "bold 250px Fredoka"; ctx.fillStyle = "white"; ctx.shadowColor="rgba(0,0,0,0.3)"; ctx.shadowBlur=10;
+                        for (let i = 0; i < letters.length; i++) { 
+                            const l = letters[i]; l.y += l.speed; 
+                            ctx.fillText(l.char, l.x, l.y); 
+                            if (l.y > canvas.height + 200) { letters.splice(i, 1); i--; } 
+                        }
+                        ctx.shadowBlur=0;
+                    }
+
+                    // Animals
+                    ctx.font = "80px serif";
+                    for(let a of animals) {
+                        ctx.fillText(a.icon, a.x, a.y);
+                    }
+
+                    requestAnimationFrame(loop);
+                };
+                loop();
+            }
+
+            // Need to carry over previous methods (helpers etc)
             initBackgroundEffect(mode, param) {
                 if(this.bgInterval) clearInterval(this.bgInterval);
-                const canvas = this.ui.bgCanvas;
-                if(!canvas) return;
-                const ctx = canvas.getContext('2d');
-                canvas.width = window.innerWidth;
-                canvas.height = window.innerHeight;
-
+                const canvas = this.ui.bgCanvas; if(!canvas) return;
+                const ctx = canvas.getContext('2d'); canvas.width = window.innerWidth; canvas.height = window.innerHeight;
                 if (mode === 'rain') {
-                    const fontSize = 60; 
-                    const columns = canvas.width / fontSize;
-                    const drops = [];
+                    const fontSize = 60; const columns = canvas.width / fontSize; const drops = [];
                     for(let i=0; i<columns; i++) drops[i] = Math.random() * -10;
-
                     this.bgInterval = setInterval(() => {
-                        ctx.fillStyle = "rgba(0, 0, 0, 0.15)"; 
-                        ctx.fillRect(0, 0, canvas.width, canvas.height);
-                        ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
-                        ctx.font = fontSize + "px Fredoka";
+                        ctx.fillStyle = "rgba(0, 0, 0, 0.15)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+                        ctx.fillStyle = "rgba(255, 255, 255, 0.8)"; ctx.font = fontSize + "px Fredoka";
                         for(let i=0; i<drops.length; i++) {
-                            const text = String.fromCharCode(48 + Math.floor(Math.random()*10)); 
-                            ctx.fillText(text, i*fontSize, drops[i]*fontSize);
-                            if(drops[i]*fontSize > canvas.height && Math.random() > 0.98) drops[i] = 0;
-                            drops[i] += 0.25; 
+                            const text = String.fromCharCode(48 + Math.floor(Math.random()*10)); ctx.fillText(text, i*fontSize, drops[i]*fontSize);
+                            if(drops[i]*fontSize > canvas.height && Math.random() > 0.98) drops[i] = 0; drops[i] += 0.25; 
                         }
                     }, 70);
                 } else if (mode === 'animals') {
-                    const animalCount = param || 1;
-                    const emojis = ['🦊', '🦄', '🐻', '🐰', '🐱', '🐷', '🤖', '🐶', '🐕', '🐩']; 
-                    const walkers = [];
-                    for(let i=0; i<animalCount; i++) {
-                        walkers.push({
-                            x: Math.random() * canvas.width,
-                            y: Math.random() * canvas.height,
-                            speed: 1 + Math.random() * 2,
-                            icon: emojis[Math.floor(Math.random() * emojis.length)],
-                            size: 20 + Math.random() * 30
-                        });
-                    }
+                    const animalCount = param || 1; const emojis = ['🦊', '🦄', '🐻', '🐰', '🐱', '🐷', '🤖', '🐶', '🐕', '🐩']; const walkers = [];
+                    for(let i=0; i<animalCount; i++) { walkers.push({ x: Math.random() * canvas.width, y: Math.random() * canvas.height, speed: 1 + Math.random() * 2, icon: emojis[Math.floor(Math.random() * emojis.length)], size: 20 + Math.random() * 30 }); }
                     this.bgInterval = setInterval(() => {
                         ctx.clearRect(0,0, canvas.width, canvas.height); 
-                        for(let w of walkers) {
-                            ctx.font = w.size + "px serif";
-                            ctx.fillText(w.icon, w.x, w.y);
-                            w.x += w.speed;
-                            if(w.x > canvas.width) w.x = -50;
-                        }
+                        for(let w of walkers) { ctx.font = w.size + "px serif"; ctx.fillText(w.icon, w.x, w.y); w.x += w.speed; if(w.x > canvas.width) w.x = -50; }
                     }, 30);
-                } else {
-                    ctx.clearRect(0,0, canvas.width, canvas.height);
-                }
+                } else { ctx.clearRect(0,0, canvas.width, canvas.height); }
             }
-
             loadUserScores() {
                 this.scores = JSON.parse(localStorage.getItem(`tastenZauberScores_${this.currentUser}`)) || {};
                 this.ui.users.hedy.classList.toggle('active', this.currentUser === 'Hedy');
                 this.ui.users.keno.classList.toggle('active', this.currentUser === 'Keno');
                 this.maxUnlockedBlock = parseInt(localStorage.getItem(`tastenZauberMaxBlock_${this.currentUser}`)) || 0;
             }
-
-            switchUser(name) {
-                this.currentUser = name;
-                localStorage.setItem('tastenZauberUser', name);
-                this.loadUserScores();
-                this.renderLevelSelect();
-            }
-
+            switchUser(name) { this.currentUser = name; localStorage.setItem('tastenZauberUser', name); this.loadUserScores(); this.renderLevelSelect(); }
             checkBlockUnlock() {
-                const totalStars = Object.values(this.scores).reduce((a, b) => a + b, 0);
-                let unlocked = 0;
-                
-                for(let b=1; b < LEVEL_BLOCKS.length; b++) {
-                    if(totalStars >= b * 30) unlocked = b;
-                    else break;
-                }
-
-                if (unlocked > this.maxUnlockedBlock) {
-                    this.maxUnlockedBlock = unlocked;
-                    localStorage.setItem(`tastenZauberMaxBlock_${this.currentUser}`, this.maxUnlockedBlock);
-                    this.triggerUnlockEffect();
-                }
-                
+                const totalStars = Object.values(this.scores).reduce((a, b) => a + b, 0); let unlocked = 0;
+                for(let b=1; b < LEVEL_BLOCKS.length; b++) { if(totalStars >= b * 30) unlocked = b; else break; }
+                if (unlocked > this.maxUnlockedBlock) { this.maxUnlockedBlock = unlocked; localStorage.setItem(`tastenZauberMaxBlock_${this.currentUser}`, this.maxUnlockedBlock); this.triggerUnlockEffect(); }
                 document.getElementById('total-stars-val').textContent = totalStars;
                 const infoEl = document.getElementById('next-unlock-info');
-                
-                if (unlocked < LEVEL_BLOCKS.length - 1) {
-                    const nextGoal = (unlocked + 1) * 30;
-                    const diff = nextGoal - totalStars;
-                    infoEl.textContent = `Nächstes Ziel: ${diff} ⭐ (bei ${nextGoal})`;
-                } else {
-                    infoEl.textContent = "Alle Level offen! Super!";
-                }
-
+                if (unlocked < LEVEL_BLOCKS.length - 1) { const nextGoal = (unlocked + 1) * 30; const diff = nextGoal - totalStars; infoEl.textContent = `Nächstes Ziel: ${diff} ⭐ (bei ${nextGoal})`; } else { infoEl.textContent = "Alle Level offen! Super!"; }
                 return this.maxUnlockedBlock;
             }
-
             triggerUnlockEffect() {
-                const bg = this.ui.bgContainer;
-                bg.classList.add('rainbow-spin');
-                this.audio.playSuperWin();
+                const bg = this.ui.bgContainer; bg.classList.add('rainbow-spin'); this.audio.playSuperWin();
                 const colors = ['#FFD700', '#FF69B4', '#00BFFF', '#7CFC00'];
                 for(let i=0; i<50; i++) {
-                    const p = document.createElement('div');
-                    p.classList.add('particle', 'star');
-                    p.style.backgroundColor = colors[Math.floor(Math.random()*colors.length)];
-                    document.body.appendChild(p);
-                    const angle = Math.random() * Math.PI * 2;
-                    const vel = 100 + Math.random() * 200;
-                    p.style.left = '50%'; p.style.top = '50%';
-                    p.animate([
-                        { transform: 'translate(-50%, -50%) scale(0)', opacity: 1 },
-                        { transform: `translate(calc(-50% + ${Math.cos(angle)*vel}px), calc(-50% + ${Math.sin(angle)*vel}px)) scale(1.5)`, opacity: 0 }
-                    ], { duration: 1500, easing: 'cubic-bezier(0,0,0,1)' }).onfinish = () => p.remove();
+                    const p = document.createElement('div'); p.classList.add('particle', 'star'); p.style.backgroundColor = colors[Math.floor(Math.random()*colors.length)]; document.body.appendChild(p);
+                    const angle = Math.random() * Math.PI * 2; const vel = 100 + Math.random() * 200; p.style.left = '50%'; p.style.top = '50%';
+                    p.animate([ { transform: 'translate(-50%, -50%) scale(0)', opacity: 1 }, { transform: `translate(calc(-50% + ${Math.cos(angle)*vel}px), calc(-50% + ${Math.sin(angle)*vel}px)) scale(1.5)`, opacity: 0 } ], { duration: 1500, easing: 'cubic-bezier(0,0,0,1)' }).onfinish = () => p.remove();
                 }
                 setTimeout(() => bg.classList.remove('rainbow-spin'), 3000);
             }
-
             renderLevelSelect() {
-                const maxUnlocked = this.checkBlockUnlock(); 
-                const container = document.getElementById('level-container'); container.innerHTML = "";
+                const maxUnlocked = this.checkBlockUnlock(); const container = document.getElementById('level-container'); container.innerHTML = "";
                 const colors = ['#FF9AA2', '#FFB7B2', '#FFDAC1', '#E2F0CB', '#B5EAD7', '#C7CEEA', '#90CAF9', '#CE93D8', '#F48FB1', '#80CBC4'];
-                
                 LEVEL_BLOCKS.forEach((block, bIdx) => {
-                    const blockDiv = document.createElement('div');
-                    blockDiv.className = 'level-block';
-                    
+                    const blockDiv = document.createElement('div'); blockDiv.className = 'level-block';
                     const isLocked = bIdx > maxUnlocked;
-                    const title = document.createElement('div');
-                    title.className = 'level-block-title';
-                    const required = bIdx * 30;
-                    const lockText = isLocked ? `<small style="font-size:0.9rem;">(Braucht ${required} ⭐)</small> 🔒` : '🔓';
+                    const title = document.createElement('div'); title.className = 'level-block-title';
+                    const required = bIdx * 30; const lockText = isLocked ? `<small style="font-size:0.9rem;">(Braucht ${required} ⭐)</small> 🔒` : '🔓';
                     title.innerHTML = `<span>${block.title} <small style="font-size:0.8rem; font-weight:normal;">(${block.desc})</small></span> <span>${lockText}</span>`;
                     blockDiv.appendChild(title);
-
-                    const contentDiv = document.createElement('div');
-                    contentDiv.className = 'level-block-content';
-
+                    const contentDiv = document.createElement('div'); contentDiv.className = 'level-block-content';
                     for(let i=0; i<10; i++) {
-                        const lvlIdx = bIdx * 10 + i;
-                        if(lvlIdx >= LEVELS.length) break;
-                        const lvl = LEVELS[lvlIdx];
-
-                        const btn = document.createElement('div'); 
-                        btn.className = 'level-btn';
-                        
+                        const lvlIdx = bIdx * 10 + i; if(lvlIdx >= LEVELS.length) break; const lvl = LEVELS[lvlIdx];
+                        const btn = document.createElement('div'); btn.className = 'level-btn';
                         if(isLocked) btn.classList.add('locked');
-                        
-                        const colorIdx = bIdx % colors.length;
-                        btn.style.backgroundColor = colors[colorIdx];
-
+                        const colorIdx = bIdx % colors.length; btn.style.backgroundColor = colors[colorIdx];
                         if (lvlIdx === this.currentLevelIdx) btn.classList.add('active-level');
-                        const score = this.scores[lvl.id] || 0;
-                        let stars = "";
+                        const score = this.scores[lvl.id] || 0; let stars = "";
                         if(score >= 1) stars += "⭐"; if(score >= 2) stars += "⭐"; if(score >= 3) stars += "⭐"; if(score >= 4) stars += "⭐"; if(score >= 5) stars += "🌟"; if(stars === "") stars = "⚪"; 
                         btn.innerHTML = `<h3>${lvl.id}</h3><p>${lvl.name}</p><div class="level-stars">${stars}</div>`;
                         if(!isLocked) btn.onclick = () => this.startLevel(lvlIdx);
                         contentDiv.appendChild(btn);
                     }
-                    blockDiv.appendChild(contentDiv);
-                    container.appendChild(blockDiv);
+                    blockDiv.appendChild(contentDiv); container.appendChild(blockDiv);
                 });
             }
-
             initKeyboardUI() {
-                const container = this.ui.keyboard; container.innerHTML = "";
-                container.className = `keyboard ${this.kbLayout} ${this.kbColor}`;
-
+                const container = this.ui.keyboard; container.innerHTML = ""; container.className = `keyboard ${this.kbLayout} ${this.kbColor}`;
                 let rows = [];
-                if(this.kbLayout === 'simple') {
-                    rows = [ ["^", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "ß"], ["q", "w", "e", "r", "t", "z", "u", "i", "o", "p", "ü", "+"], ["a", "s", "d", "f", "g", "h", "j", "k", "l", "ö", "ä", "#"], ["<", "y", "x", "c", "v", "b", "n", "m", ",", ".", "-", "SHIFT"] ];
-                } else {
-                    rows = [ ["Esc", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "ß", "Del"], ["Tab", "q", "w", "e", "r", "t", "z", "u", "i", "o", "p", "ü", "+", "Enter"], ["Caps", "a", "s", "d", "f", "g", "h", "j", "k", "l", "ö", "ä", "#"], ["Shift", "<", "y", "x", "c", "v", "b", "n", "m", ",", ".", "-", "Shift"] ];
-                }
-                const fingers = {
-                    '1': 'f-pinky', 'q': 'f-pinky', 'a': 'f-pinky', 'y': 'f-pinky', '<': 'f-pinky', 'shift': 'f-pinky',
-                    '2': 'f-ring', 'w': 'f-ring', 's': 'f-ring', 'x': 'f-ring',
-                    '3': 'f-mid', 'e': 'f-mid', 'd': 'f-mid', 'c': 'f-mid',
-                    '4': 'f-idx-l', '5': 'f-idx-l', 'r': 'f-idx-l', 't': 'f-idx-l', 'f': 'f-idx-l', 'g': 'f-idx-l', 'v': 'f-idx-l', 'b': 'f-idx-l',
-                    '6': 'f-idx-r', '7': 'f-idx-r', 'z': 'f-idx-r', 'u': 'f-idx-r', 'h': 'f-idx-r', 'j': 'f-idx-r', 'n': 'f-idx-r', 'm': 'f-idx-r',
-                    '8': 'f-mid', 'i': 'f-mid', 'k': 'f-mid', ',': 'f-mid',
-                    '9': 'f-ring', 'o': 'f-ring', 'l': 'f-ring', '.': 'f-ring',
-                    '0': 'f-pinky', 'p': 'f-pinky', 'ö': 'f-pinky', '-': 'f-pinky', 'ß': 'f-pinky', 'ü': 'f-pinky', 'ä': 'f-pinky', '+': 'f-pinky', '#': 'f-pinky'
-                };
-                rows.forEach(rowKeys => {
-                    const rowDiv = document.createElement('div'); rowDiv.className = 'row';
-                    rowKeys.forEach(char => {
-                        const keyDiv = document.createElement('div'); keyDiv.className = 'key';
-                        keyDiv.textContent = char.length > 2 ? char : char.toUpperCase();
-                        const dataChar = char.toLowerCase();
-                        keyDiv.dataset.char = dataChar; 
-                        keyDiv.dataset.normal = char; 
-                        let shifted = char.toUpperCase();
-                        if (this.shiftMap[char]) shifted = this.shiftMap[char];
-                        keyDiv.dataset.shifted = shifted;
-                        if(char.length > 1) keyDiv.classList.add(char === ' ' ? 'space' : 'wide');
-                        if(char === 'Enter' || char === 'Shift' || char === 'Del' || char === 'Tab' || char === 'Caps') keyDiv.classList.add('cmd');
-                        if(this.kbColor === 'fingers') {
-                            const fClass = fingers[dataChar];
-                            if(fClass) keyDiv.classList.add(fClass);
-                            if (['5','t','g','b'].includes(dataChar)) keyDiv.classList.add('hand-split');
-                        }
-                        rowDiv.appendChild(keyDiv);
-                    });
-                    container.appendChild(rowDiv);
-                });
+                if(this.kbLayout === 'simple') { rows = [ ["^", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "ß"], ["q", "w", "e", "r", "t", "z", "u", "i", "o", "p", "ü", "+"], ["a", "s", "d", "f", "g", "h", "j", "k", "l", "ö", "ä", "#"], ["<", "y", "x", "c", "v", "b", "n", "m", ",", ".", "-", "SHIFT"] ]; } else { rows = [ ["Esc", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "ß", "Del"], ["Tab", "q", "w", "e", "r", "t", "z", "u", "i", "o", "p", "ü", "+", "Enter"], ["Caps", "a", "s", "d", "f", "g", "h", "j", "k", "l", "ö", "ä", "#"], ["Shift", "<", "y", "x", "c", "v", "b", "n", "m", ",", ".", "-", "Shift"] ]; }
+                const fingers = { '1': 'f-pinky', 'q': 'f-pinky', 'a': 'f-pinky', 'y': 'f-pinky', '<': 'f-pinky', 'shift': 'f-pinky', '2': 'f-ring', 'w': 'f-ring', 's': 'f-ring', 'x': 'f-ring', '3': 'f-mid', 'e': 'f-mid', 'd': 'f-mid', 'c': 'f-mid', '4': 'f-idx-l', '5': 'f-idx-l', 'r': 'f-idx-l', 't': 'f-idx-l', 'f': 'f-idx-l', 'g': 'f-idx-l', 'v': 'f-idx-l', 'b': 'f-idx-l', '6': 'f-idx-r', '7': 'f-idx-r', 'z': 'f-idx-r', 'u': 'f-idx-r', 'h': 'f-idx-r', 'j': 'f-idx-r', 'n': 'f-idx-r', 'm': 'f-idx-r', '8': 'f-mid', 'i': 'f-mid', 'k': 'f-mid', ',': 'f-mid', '9': 'f-ring', 'o': 'f-ring', 'l': 'f-ring', '.': 'f-ring', '0': 'f-pinky', 'p': 'f-pinky', 'ö': 'f-pinky', '-': 'f-pinky', 'ß': 'f-pinky', 'ü': 'f-pinky', 'ä': 'f-pinky', '+': 'f-pinky', '#': 'f-pinky' };
+                rows.forEach(rowKeys => { const rowDiv = document.createElement('div'); rowDiv.className = 'row'; rowKeys.forEach(char => { const keyDiv = document.createElement('div'); keyDiv.className = 'key'; keyDiv.textContent = char.length > 2 ? char : char.toUpperCase(); const dataChar = char.toLowerCase(); keyDiv.dataset.char = dataChar; keyDiv.dataset.normal = char; let shifted = char.toUpperCase(); if (this.shiftMap[char]) shifted = this.shiftMap[char]; keyDiv.dataset.shifted = shifted; if(char.length > 1) keyDiv.classList.add(char === ' ' ? 'space' : 'wide'); if(char === 'Enter' || char === 'Shift' || char === 'Del' || char === 'Tab' || char === 'Caps') keyDiv.classList.add('cmd'); if(this.kbColor === 'fingers') { const fClass = fingers[dataChar]; if(fClass) keyDiv.classList.add(fClass); if (['5','t','g','b'].includes(dataChar)) keyDiv.classList.add('hand-split'); } rowDiv.appendChild(keyDiv); }); container.appendChild(rowDiv); });
                 const spaceRow = document.createElement('div'); spaceRow.className = 'row'; const spaceKey = document.createElement('div'); spaceKey.className = 'key space'; spaceKey.dataset.char = " "; spaceKey.textContent = "LEERTASTE"; spaceRow.appendChild(spaceKey); container.appendChild(spaceRow);
             }
-
-            toggleKeyboardShift(active) {
-                document.querySelectorAll('.key').forEach(k => {
-                    if (k.dataset.shifted) {
-                        const newChar = active ? k.dataset.shifted : k.dataset.normal;
-                        if (k.textContent.length === 1) k.textContent = newChar;
-                        k.dataset.char = newChar.toLowerCase();
-                    }
-                });
-            }
-
+            toggleKeyboardShift(active) { document.querySelectorAll('.key').forEach(k => { if (k.dataset.shifted) { const newChar = active ? k.dataset.shifted : k.dataset.normal; if (k.textContent.length === 1) k.textContent = newChar; k.dataset.char = newChar.toLowerCase(); } }); }
             setupListeners() {
                 document.getElementById('btn-start-game').onclick = () => this.startGame();
                 this.ui.buttons.menu.onclick = () => this.toMenu();
@@ -1193,27 +1193,10 @@
                 document.getElementById('btn-quit').onclick = () => { this.togglePause(); this.toMenu(); };
                 document.getElementById('btn-modal-action').onclick = () => this.handleNextAction();
                 this.ui.buttons.repeat.onclick = () => { this.ui.screens.modal.classList.add('hidden'); this.startLevel(this.currentLevelIdx); };
-                this.ui.buttons.directNext.onclick = () => { 
-                    this.ui.screens.modal.classList.add('hidden'); 
-                    if(this.currentLevelIdx + 1 < LEVELS.length) this.startLevel(this.currentLevelIdx + 1); 
-                };
-
-                window.addEventListener('keydown', (e) => {
-                    if (e.key === "Shift") this.toggleKeyboardShift(true);
-                    if (e.key === "Enter") {
-                        if (!this.ui.screens.start.classList.contains('hidden')) this.startGame();
-                        else if (!this.ui.screens.level.classList.contains('hidden')) { /* Do nothing on enter in menu */ }
-                        else if (!this.ui.screens.modal.classList.contains('hidden')) this.handleNextAction();
-                    } else if (e.key === "Escape") { if (this.isGameActive || this.isPaused) this.togglePause(); }
-                    else { this.handleTyping(e); }
-                });
-                
-                window.addEventListener('keyup', (e) => {
-                    if (e.key === "Shift") this.toggleKeyboardShift(false);
-                    this.handleKeyUp(e);
-                });
+                this.ui.buttons.directNext.onclick = () => { this.ui.screens.modal.classList.add('hidden'); if(this.currentLevelIdx + 1 < LEVELS.length) this.startLevel(this.currentLevelIdx + 1); };
+                window.addEventListener('keydown', (e) => { if (e.key === "Shift") this.toggleKeyboardShift(true); if (e.key === "Enter") { if (!this.ui.screens.start.classList.contains('hidden')) this.startGame(); else if (!this.ui.screens.level.classList.contains('hidden')) { } else if (!this.ui.screens.modal.classList.contains('hidden')) this.handleNextAction(); } else if (e.key === "Escape") { if (this.isGameActive || this.isPaused) this.togglePause(); } else { this.handleTyping(e); } });
+                window.addEventListener('keyup', (e) => { if (e.key === "Shift") this.toggleKeyboardShift(false); this.handleKeyUp(e); });
             }
-
             closeOptions() {
                 this.audio.setSettings(this.ui.inputs.sfx.value, this.ui.inputs.bgm.value);
                 this.world.setMascot(this.ui.inputs.mascot.value);
@@ -1223,56 +1206,20 @@
                 this.kbColor = this.ui.inputs.kbColor.value;
                 this.kbError = this.ui.inputs.kbError.value;
                 this.explEnabled = this.ui.inputs.expl.value; 
-                this.initKeyboardUI(); 
-                this.resumeGameAfterMenu();
+                this.initKeyboardUI(); this.resumeGameAfterMenu();
             }
-
-            resumeGameAfterMenu() { 
-                if(this.isGameActive) { 
-                    this.isPaused = false; 
-                    this.world.container.style.filter = "none"; 
-                    this.ui.bgContainer.style.display = 'none'; 
-                    this.initBackgroundEffect('none');
-                    this.showScreen('game'); 
-                } else { 
-                    this.ui.bgContainer.style.display = 'block'; 
-                    this.initBackgroundEffect('rain'); 
-                    this.showScreen('level'); 
-                } 
-            }
+            resumeGameAfterMenu() { if(this.isGameActive) { this.isPaused = false; this.world.container.style.filter = "none"; this.ui.bgContainer.style.display = 'none'; this.initBackgroundEffect('none'); this.showScreen('game'); } else { this.ui.bgContainer.style.display = 'block'; this.initBackgroundEffect('rain'); this.showScreen('level'); } }
             toggleBtnVisual(btn, isActive) { if (isActive) { btn.classList.remove('toggle-off'); btn.classList.add('toggle-on'); } else { btn.classList.remove('toggle-on'); btn.classList.add('toggle-off'); } }
-            
             startGame() { this.audio.init(); this.showScreen('level'); }
-            toMenu() { 
-                this.isGameActive = false; this.isPaused = false; 
-                this.ui.bgContainer.style.display = 'block'; 
-                this.initBackgroundEffect('rain'); 
-                this.showScreen('level'); 
-            }
-            togglePause(forcePause = false) {
-                if (!this.isGameActive && !this.isPaused && !forcePause) return;
-                if (forcePause) this.isPaused = false;
-                this.isPaused = !this.isPaused;
-                if (this.isPaused) { this.ui.screens.pause.classList.remove('hidden'); this.world.container.style.filter = "blur(5px)"; } 
-                else { this.ui.screens.pause.classList.add('hidden'); this.world.container.style.filter = "none"; }
-            }
-
-            showScreen(name) {
-                Object.values(this.ui.screens).forEach(el => el.classList.add('hidden'));
-                if (name === 'game') this.ui.screens.game.classList.remove('hidden');
-                else if (name === 'level') { this.renderLevelSelect(); this.ui.screens.level.classList.remove('hidden'); }
-                else if (name === 'start') this.ui.screens.start.classList.remove('hidden');
-                else if (name === 'modal') this.ui.screens.modal.classList.remove('hidden');
-                else if (name === 'pause') this.ui.screens.pause.classList.remove('hidden');
-                else if (name === 'options') this.ui.screens.options.classList.remove('hidden');
-            }
-
+            toMenu() { this.isGameActive = false; this.isPaused = false; this.ui.bgContainer.style.display = 'block'; this.initBackgroundEffect('rain'); this.showScreen('level'); }
+            togglePause(forcePause = false) { if (!this.isGameActive && !this.isPaused && !forcePause) return; if (forcePause) this.isPaused = false; this.isPaused = !this.isPaused; if (this.isPaused) { this.ui.screens.pause.classList.remove('hidden'); this.world.container.style.filter = "blur(5px)"; } else { this.ui.screens.pause.classList.add('hidden'); this.world.container.style.filter = "none"; } }
+            showScreen(name) { Object.values(this.ui.screens).forEach(el => el.classList.add('hidden')); if (name === 'game') this.ui.screens.game.classList.remove('hidden'); else if (name === 'level') { this.renderLevelSelect(); this.ui.screens.level.classList.remove('hidden'); } else if (name === 'start') this.ui.screens.start.classList.remove('hidden'); else if (name === 'modal') this.ui.screens.modal.classList.remove('hidden'); else if (name === 'pause') this.ui.screens.pause.classList.remove('hidden'); else if (name === 'options') this.ui.screens.options.classList.remove('hidden'); }
             startLevel(index) {
                 if (index >= LEVELS.length) index = 0;
                 this.currentLevelIdx = index;
                 this.targetString = LEVELS[index].content;
                 this.currentIndex = 0; this.score = 0; this.errors = 0;
-                this.streak = 0; // Reset streak
+                this.streak = 0; 
                 this.isGameActive = false; 
                 this.typedHistory = [];
                 this.ui.bgContainer.style.display = 'none';
@@ -1285,119 +1232,45 @@
                 this.ui.flashTitle.textContent = lvlName;
                 let count = 3;
                 this.ui.flashCount.textContent = count;
-                const countdown = setInterval(() => {
-                    count--;
-                    if(count > 0) {
-                        this.ui.flashCount.textContent = count;
-                    } else if (count === 0) {
-                        this.ui.flashCount.textContent = "LOS!";
-                        this.isGameActive = true;
-                        this.startTime = Date.now();
-                    } else {
-                        clearInterval(countdown);
-                        this.ui.flash.style.opacity = "0";
-                    }
-                }, 1000);
+                const countdown = setInterval(() => { count--; if(count > 0) { this.ui.flashCount.textContent = count; } else if (count === 0) { this.ui.flashCount.textContent = "LOS!"; this.isGameActive = true; this.startTime = Date.now(); } else { clearInterval(countdown); this.ui.flash.style.opacity = "0"; } }, 1000);
                 this.updateDisplay(false); this.showScreen('game'); this.highlightKey(this.targetString[0]);
             }
-
             triggerCharExplosion() {
                 const el = this.ui.display.current;
                 const rect = el.getBoundingClientRect();
                 const center = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
                 const colors = ['#FF9AA2', '#B5EAD7', '#FFB7B2', '#C7CEEA', '#FFF176'];
-                
-                let count = 12;
-                let scaleBase = 1;
-                let velocityBase = 100;
-
-                // Modus check
-                if (this.explEnabled === 'ultra') {
-                    count = 100;
-                    velocityBase = 250;
-                } else if (this.explEnabled === 'grow') {
-                    // Wachsen lassen, aber kappen bei 50 Partikeln
-                    count = 12 + Math.min(this.streak * 2, 50); 
-                    scaleBase = 1 + Math.min(this.streak * 0.1, 3); // Max 3x Größe
-                    velocityBase = 100 + Math.min(this.streak * 10, 200);
-                }
-
+                let count = 12; let scaleBase = 1; let velocityBase = 100;
+                if (this.explEnabled === 'ultra') { count = 100; velocityBase = 250; } else if (this.explEnabled === 'grow') { count = 12 + Math.min(this.streak * 2, 50); scaleBase = 1 + Math.min(this.streak * 0.1, 3); velocityBase = 100 + Math.min(this.streak * 10, 200); }
                 for(let i=0; i<count; i++) {
-                    const p = document.createElement('div');
-                    p.classList.add('particle');
-                    document.body.appendChild(p);
-                    p.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
-                    p.style.left = center.x + 'px'; p.style.top = center.y + 'px';
-                    
-                    const angle = Math.random() * Math.PI * 2;
-                    const velocity = 50 + Math.random() * velocityBase;
-                    const tx = Math.cos(angle) * velocity; 
-                    const ty = Math.sin(angle) * velocity;
-                    
-                    p.animate([
-                        { transform: `translate(0,0) scale(${scaleBase})`, opacity: 1 },
-                        { transform: `translate(${tx}px, ${ty}px) scale(0)`, opacity: 0 }
-                    ], { duration: 500 + Math.random() * 200, easing: 'ease-out' }).onfinish = () => p.remove();
+                    const p = document.createElement('div'); p.classList.add('particle'); document.body.appendChild(p);
+                    p.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)]; p.style.left = center.x + 'px'; p.style.top = center.y + 'px';
+                    const angle = Math.random() * Math.PI * 2; const velocity = 50 + Math.random() * velocityBase; const tx = Math.cos(angle) * velocity; const ty = Math.sin(angle) * velocity;
+                    p.animate([ { transform: `translate(0,0) scale(${scaleBase})`, opacity: 1 }, { transform: `translate(${tx}px, ${ty}px) scale(0)`, opacity: 0 } ], { duration: 500 + Math.random() * 200, easing: 'ease-out' }).onfinish = () => p.remove();
                 }
             }
-
             handleTyping(e) {
                 if (!this.isGameActive || this.isPaused) return;
-                let char = e.key;
-                const keyEl = this.findKeyElement(char); 
-                const expected = this.targetString[this.currentIndex];
-                
+                let char = e.key; const keyEl = this.findKeyElement(char); const expected = this.targetString[this.currentIndex];
                 if (char === expected) {
                     if (keyEl) keyEl.classList.add('pressed');
                     this.typedHistory.push({ char: char, type: 'correct' });
-                    this.audio.playCorrect(this.currentIndex); 
-                    this.score += 10; 
-                    this.streak++; // Streak erhöhen
-
+                    this.audio.playCorrect(this.currentIndex); this.score += 10; this.streak++; 
                     if(this.explEnabled !== 'off') this.triggerCharExplosion();
-                    
-                    this.currentIndex++; 
-                    this.world.triggerReaction();
-                    this.world.stepChase('player'); // Spieler bewegt sich
-
-                    if (this.currentIndex >= this.targetString.length) { 
-                        this.levelComplete(); 
-                    } else { 
-                        this.updateDisplay(this.explEnabled !== 'off'); 
-                        this.highlightKey(this.targetString[this.currentIndex]); 
-                    }
+                    this.currentIndex++; this.world.triggerReaction(); this.world.stepChase('player'); 
+                    if (this.currentIndex >= this.targetString.length) { this.levelComplete(); } else { this.updateDisplay(this.explEnabled !== 'off'); this.highlightKey(this.targetString[this.currentIndex]); }
                 } else {
                     if (char.length === 1) { 
-                        this.errors++;
-                        this.streak = 0; // Streak reset
-                        
-                        if (keyEl && this.kbError === 'flash') {
-                            keyEl.classList.add('error-flash');
-                            setTimeout(() => keyEl.classList.remove('error-flash'), 200);
-                        } else if(keyEl) {
-                            keyEl.classList.add('pressed');
-                        }
-                        this.typedHistory.push({ char: char, type: 'wrong' });
-                        this.audio.playWrong(); 
-                        this.ui.display.current.classList.add('shake'); setTimeout(() => this.ui.display.current.classList.remove('shake'), 300); 
-                        
-                        this.world.stepChase('npc'); // Gegner bewegt sich
+                        this.errors++; this.streak = 0; 
+                        if (keyEl && this.kbError === 'flash') { keyEl.classList.add('error-flash'); setTimeout(() => keyEl.classList.remove('error-flash'), 200); } else if(keyEl) { keyEl.classList.add('pressed'); }
+                        this.typedHistory.push({ char: char, type: 'wrong' }); this.audio.playWrong(); this.ui.display.current.classList.add('shake'); setTimeout(() => this.ui.display.current.classList.remove('shake'), 300); this.world.stepChase('npc'); 
                     }
                 }
                 this.ui.display.score.innerText = this.score;
             }
-
             handleKeyUp(e) { const keyEl = this.findKeyElement(e.key); if (keyEl) keyEl.classList.remove('pressed'); }
-            findKeyElement(char) { 
-                const lower = char.toLowerCase(); 
-                if (char === " ") return document.querySelector('.key.space'); 
-                try { return document.querySelector(`.key[data-char='${lower}']`); } catch(e) { return null; }
-            }
-            highlightKey(char) { 
-                document.querySelectorAll('.key.active').forEach(el => el.classList.remove('active')); 
-                const el = this.findKeyElement(char); 
-                if (el) el.classList.add('active'); 
-            }
+            findKeyElement(char) { const lower = char.toLowerCase(); if (char === " ") return document.querySelector('.key.space'); try { return document.querySelector(`.key[data-char='${lower}']`); } catch(e) { return null; } }
+            highlightKey(char) { document.querySelectorAll('.key.active').forEach(el => el.classList.remove('active')); const el = this.findKeyElement(char); if (el) el.classList.add('active'); }
             updateDisplay(animate = false) {
                 const current = this.targetString[this.currentIndex];
                 const next = this.targetString.substring(this.currentIndex + 1, this.currentIndex + 10);
@@ -1409,147 +1282,43 @@
                 const pct = (this.currentIndex / this.targetString.length) * 100;
                 this.ui.display.bar.style.width = `${pct}%`;
             }
-
             spawnModalEffects(stars) {
                 const colors = ['#FFD700', '#FF4500', '#1E90FF', '#32CD32'];
                 const count = stars * 10 + 20; 
                 for(let i=0; i<count; i++) {
-                    const p = document.createElement('div');
-                    p.classList.add('particle', 'star');
-                    p.style.backgroundColor = colors[Math.floor(Math.random()*colors.length)];
-                    document.getElementById('modal-screen').appendChild(p);
-                    p.style.left = '50%'; p.style.top = '30%';
-                    const angle = Math.random() * Math.PI * 2;
-                    const vel = 100 + Math.random() * 200;
-                    p.animate([
-                        { transform: 'translate(-50%, -50%) scale(0)', opacity: 1 },
-                        { transform: `translate(calc(-50% + ${Math.cos(angle)*vel}px), calc(-50% + ${Math.sin(angle)*vel + 100}px)) rotate(${Math.random()*360}deg)`, opacity: 0 }
-                    ], { duration: 1000 + Math.random()*1000, easing: 'ease-out' }).onfinish = () => p.remove();
+                    const p = document.createElement('div'); p.classList.add('particle', 'star'); p.style.backgroundColor = colors[Math.floor(Math.random()*colors.length)]; document.getElementById('modal-screen').appendChild(p);
+                    p.style.left = '50%'; p.style.top = '30%'; const angle = Math.random() * Math.PI * 2; const vel = 100 + Math.random() * 200;
+                    p.animate([ { transform: 'translate(-50%, -50%) scale(0)', opacity: 1 }, { transform: `translate(calc(-50% + ${Math.cos(angle)*vel}px), calc(-50% + ${Math.sin(angle)*vel + 100}px)) rotate(${Math.random()*360}deg)`, opacity: 0 } ], { duration: 1000 + Math.random()*1000, easing: 'ease-out' }).onfinish = () => p.remove();
                 }
             }
-
             levelComplete() {
                 this.isGameActive = false;
-                const totalChars = this.targetString.length;
-                const durationMinutes = (Date.now() - this.startTime) / 60000;
-                const cpm = totalChars / durationMinutes;
-                const targetCPM = 60; 
+                const totalChars = this.targetString.length; const durationMinutes = (Date.now() - this.startTime) / 60000; const cpm = totalChars / durationMinutes; const targetCPM = 60; 
                 let speedPct = Math.round((cpm / targetCPM) * 100); if(speedPct > 100) speedPct = 100;
-                const totalKeystrokes = totalChars + this.errors;
-                let accPct = 100; if(totalKeystrokes > 0) accPct = Math.round(((totalChars) / totalKeystrokes) * 100); if(accPct < 0) accPct = 0;
-                
-                let stars = 1; 
-                if (speedPct >= 40 && accPct >= 40) stars = 2; 
-                if (speedPct >= 60 && accPct >= 60) stars = 3; 
-                if (speedPct >= 80 && accPct >= 80) stars = 4; 
-                if (speedPct >= 100 && accPct >= 100) stars = 5;
-
-                const lvlId = LEVELS[this.currentLevelIdx].id;
-                const oldScore = this.scores[lvlId] || 0;
-                if(stars > oldScore) {
-                    this.scores[lvlId] = stars;
-                    localStorage.setItem(`tastenZauberScores_${this.currentUser}`, JSON.stringify(this.scores));
-                }
-                
+                const totalKeystrokes = totalChars + this.errors; let accPct = 100; if(totalKeystrokes > 0) accPct = Math.round(((totalChars) / totalKeystrokes) * 100); if(accPct < 0) accPct = 0;
+                let stars = 1; if (speedPct >= 40 && accPct >= 40) stars = 2; if (speedPct >= 60 && accPct >= 60) stars = 3; if (speedPct >= 80 && accPct >= 80) stars = 4; if (speedPct >= 100 && accPct >= 100) stars = 5;
+                const lvlId = LEVELS[this.currentLevelIdx].id; const oldScore = this.scores[lvlId] || 0;
+                if(stars > oldScore) { this.scores[lvlId] = stars; localStorage.setItem(`tastenZauberScores_${this.currentUser}`, JSON.stringify(this.scores)); }
                 if(stars === 5) this.audio.playSuperWin(); else this.audio.playWin();
                 this.spawnModalEffects(stars);
-
-                this.ui.bgContainer.style.display = 'block';
-                this.initBackgroundEffect('animals', lvlId); 
-
-                const modalTitle = document.getElementById('modal-title');
-                const starDisplay = document.getElementById('result-stars');
-                const barSpeed = document.getElementById('bar-speed');
-                const barAcc = document.getElementById('bar-acc');
-                const lblSpeed = document.getElementById('lbl-speed');
-                const lblAcc = document.getElementById('lbl-acc');
-                const modalBtn = document.getElementById('btn-modal-action');
-                const textDisplay = document.getElementById('result-text-display');
-                
-                const btnDirect = this.ui.buttons.directNext;
-                const nextLvlIdx = this.currentLevelIdx + 1;
-                let nextLocked = false;
-                if(nextLvlIdx % 10 === 0 && nextLvlIdx < LEVELS.length) {
-                    const requiredBlock = Math.floor(nextLvlIdx / 10);
-                    if(requiredBlock > this.checkBlockUnlock()) nextLocked = true; 
-                }
-
-                if (nextLvlIdx < LEVELS.length && !nextLocked) {
-                    btnDirect.classList.remove('hidden');
-                    btnDirect.innerText = `Zu Level ${LEVELS[nextLvlIdx].id}`;
-                } else {
-                    btnDirect.classList.add('hidden'); 
-                }
-
+                this.ui.bgContainer.style.display = 'block'; this.initBackgroundEffect('animals', lvlId); 
+                const modalTitle = document.getElementById('modal-title'); const starDisplay = document.getElementById('result-stars'); const barSpeed = document.getElementById('bar-speed'); const barAcc = document.getElementById('bar-acc'); const lblSpeed = document.getElementById('lbl-speed'); const lblAcc = document.getElementById('lbl-acc'); const modalBtn = document.getElementById('btn-modal-action'); const textDisplay = document.getElementById('result-text-display');
+                const btnDirect = this.ui.buttons.directNext; const nextLvlIdx = this.currentLevelIdx + 1; let nextLocked = false;
+                if(nextLvlIdx % 10 === 0 && nextLvlIdx < LEVELS.length) { const requiredBlock = Math.floor(nextLvlIdx / 10); if(requiredBlock > this.checkBlockUnlock()) nextLocked = true; }
+                if (nextLvlIdx < LEVELS.length && !nextLocked) { btnDirect.classList.remove('hidden'); btnDirect.innerText = `Zu Level ${LEVELS[nextLvlIdx].id}`; } else { btnDirect.classList.add('hidden'); }
                 modalTitle.innerText = stars === 5 ? "Perfekt! Legendär!" : "Level geschafft!";
-                let starStr = ""; 
-                if(stars===1) starStr = "⭐"; 
-                if(stars===2) starStr = "⭐⭐"; 
-                if(stars===3) starStr = "⭐⭐⭐"; 
-                if(stars===4) starStr = "⭐⭐⭐⭐";
-                if(stars===5) starStr = "🌟🌟🌟🌟🌟";
-                
-                starDisplay.innerText = starStr;
-                starDisplay.className = "result-stars pop-stars" + (stars === 5 ? " five-stars" : "");
-                
-                lblSpeed.innerText = speedPct + "%"; lblAcc.innerText = accPct + "%";
-                barSpeed.style.width = "0%"; barAcc.style.width = "0%";
+                let starStr = ""; if(stars===1) starStr = "⭐"; if(stars===2) starStr = "⭐⭐"; if(stars===3) starStr = "⭐⭐⭐"; if(stars===4) starStr = "⭐⭐⭐⭐"; if(stars===5) starStr = "🌟🌟🌟🌟🌟";
+                starDisplay.innerText = starStr; starDisplay.className = "result-stars pop-stars" + (stars === 5 ? " five-stars" : "");
+                lblSpeed.innerText = speedPct + "%"; lblAcc.innerText = accPct + "%"; barSpeed.style.width = "0%"; barAcc.style.width = "0%";
                 setTimeout(() => { barSpeed.style.width = speedPct + "%"; barAcc.style.width = accPct + "%"; }, 100);
-                
-                textDisplay.innerHTML = "";
-                this.typedHistory.forEach(item => { const span = document.createElement('span'); span.textContent = item.char; span.className = item.type === 'correct' ? 'res-char correct' : 'res-char wrong'; textDisplay.appendChild(span); });
-                
+                textDisplay.innerHTML = ""; this.typedHistory.forEach(item => { const span = document.createElement('span'); span.textContent = item.char; span.className = item.type === 'correct' ? 'res-char correct' : 'res-char wrong'; textDisplay.appendChild(span); });
                 if (this.isLooping) modalBtn.innerText = "Wiederholen (Enter)"; else if (this.noBonus) modalBtn.innerText = "Nächstes Level (Enter)"; else modalBtn.innerText = "Bonus spielen (Enter)";
                 this.showScreen('modal');
             }
-
             handleNextAction() {
                 this.ui.screens.modal.classList.add('hidden');
                 if (this.isLooping) this.startLevel(this.currentLevelIdx);
-                else { if (this.noBonus) {
-                     if(!this.ui.buttons.directNext.classList.contains('hidden')) this.startLevel(this.currentLevelIdx + 1);
-                     else this.showScreen('level');
-                } else this.startMiniGame(); }
-            }
-
-            startMiniGame() {
-                this.showScreen('none');
-                this.ui.bgContainer.style.display = 'none';
-                this.initBackgroundEffect('none');
-                this.ui.miniUi.classList.remove('hidden'); 
-                const canvas = document.getElementById('mini-game-canvas'); canvas.style.display = 'block';
-                const ctx = canvas.getContext('2d'); canvas.width = window.innerWidth; canvas.height = window.innerHeight;
-                const rawKeys = LEVELS[this.currentLevelIdx].keys; const possible = (rawKeys + rawKeys.toUpperCase()).replace("Shift", "");
-                let gameRunning = true; const letters = []; let particles = []; let fedCount = 0; const maxFed = 10;
-                const spawner = setInterval(() => {
-                    if (!gameRunning) return;
-                    const char = possible.length > 0 ? possible.charAt(Math.floor(Math.random() * possible.length)) : "a"; 
-                    letters.push({ char: char, x: Math.random() * (canvas.width - 100) + 50, y: -50, speed: 2 + Math.random() * 2 });
-                }, 1000);
-                const createExplosion = (x, y) => { for(let i=0; i<15; i++) { particles.push({ x: x, y: y, vx: (Math.random() - 0.5) * 5, vy: (Math.random() - 0.5) * 5, life: 1.0, color: `hsl(${Math.random()*360}, 100%, 70%)` }); } };
-                const endGame = () => {
-                    gameRunning = false; clearInterval(spawner); window.removeEventListener('keydown', miniHandler); 
-                    canvas.style.display = 'none'; this.ui.miniUi.classList.add('hidden'); this.ui.buttons.skip.onclick = null; 
-                    if(!this.ui.buttons.directNext.classList.contains('hidden')) this.startLevel(this.currentLevelIdx + 1); else this.showScreen('level');
-                };
-                this.ui.buttons.skip.onclick = () => endGame();
-                const miniHandler = (e) => {
-                    if(e.key === "Escape") { endGame(); return; }
-                    const char = e.key; const idx = letters.findIndex(l => l.char === char && l.y < canvas.height - 100);
-                    if (idx > -1) { const l = letters[idx]; createExplosion(l.x, l.y); letters.splice(idx, 1); fedCount++; this.audio.playCorrect(fedCount); this.world.triggerReaction(); if(fedCount >= maxFed) endGame(); }
-                };
-                window.addEventListener('keydown', miniHandler);
-                const loop = () => {
-                    if (!gameRunning) return;
-                    ctx.clearRect(0, 0, canvas.width, canvas.height);
-                    ctx.fillStyle = "rgba(255, 154, 162, 0.5)"; ctx.beginPath(); ctx.arc(canvas.width/2, canvas.height, 100, Math.PI, 0); ctx.fill();
-                    ctx.fillStyle = "white"; ctx.font = "20px Fredoka"; ctx.fillText(`Futter: ${fedCount}/${maxFed}`, canvas.width/2 - 40, canvas.height - 20);
-                    for (let i = 0; i < particles.length; i++) { const p = particles[i]; p.x += p.vx; p.y += p.vy; p.life -= 0.02; ctx.globalAlpha = p.life; ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI*2); ctx.fill(); ctx.globalAlpha = 1.0; if(p.life <= 0) { particles.splice(i, 1); i--; } }
-                    ctx.font = "bold 40px Fredoka"; ctx.fillStyle = "white";
-                    for (let i = 0; i < letters.length; i++) { const l = letters[i]; l.y += l.speed; ctx.fillText(l.char, l.x, l.y); if (l.y > canvas.height) { letters.splice(i, 1); i--; } }
-                    requestAnimationFrame(loop);
-                };
-                loop();
+                else { if (this.noBonus) { if(!this.ui.buttons.directNext.classList.contains('hidden')) this.startLevel(this.currentLevelIdx + 1); else this.showScreen('level'); } else this.startMiniGame(); }
             }
         }
         window.onload = () => { const app = new Game(); };
