@@ -30,8 +30,25 @@
         /* 3D Canvas (Foreground for Animals) */
         #canvas-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; transition: filter 0.3s; pointer-events: none; }
 
-        /* 2D Bonus Canvas (Background for Hypnosis & Letters) */
+        /* 2D Bonus Canvas (Background for Hypnosis & Particles) */
         #mini-game-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; display: none; }
+
+        /* --- BONUS LETTER DISPLAY (HTML instead of Canvas for reliability) --- */
+        #bonus-letter-display {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 15rem; /* Huge! */
+            color: white;
+            text-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            font-weight: bold;
+            z-index: 50; /* Above 3D scene */
+            animation: float 3s ease-in-out infinite;
+            pointer-events: none;
+            display: none; /* Hidden by default */
+        }
+        #bonus-letter-display.visible { display: block; }
 
         /* --- GLOBAL BACKGROUND (Main Game) --- */
         #global-bg {
@@ -177,6 +194,8 @@
 
     <div id="canvas-container"></div>
     <canvas id="mini-game-canvas"></canvas>
+
+    <div id="bonus-letter-display">A</div>
     
     <div id="global-bg">
         <canvas id="bg-canvas"></canvas>
@@ -996,6 +1015,7 @@
                     flashTitle: document.getElementById('flash-title'),
                     flashCount: document.getElementById('flash-countdown'),
                     miniUi: document.getElementById('minigame-ui'),
+                    bonusLetter: document.getElementById('bonus-letter-display'), // New
                     users: { hedy: document.getElementById('user-hedy'), keno: document.getElementById('user-keno') },
                     bgCanvas: document.getElementById('bg-canvas'),
                     bgContainer: document.getElementById('global-bg')
@@ -1013,13 +1033,14 @@
 
             // ... (Rest of game methods stay same) ...
             
-            // --- UPDATED BONUS GAME (STATIC RECAP) ---
+            // --- UPDATED BONUS GAME (STATIC RECAP - HTML BASED) ---
             startMiniGame() {
                 this.showScreen('none');
                 this.ui.bgContainer.style.display = 'none';
                 this.initBackgroundEffect('none');
                 this.ui.miniUi.classList.remove('hidden'); 
-                
+                this.ui.bonusLetter.classList.add('visible'); // Show the HTML letter
+
                 const canvas = document.getElementById('mini-game-canvas'); 
                 canvas.style.display = 'block';
                 const ctx = canvas.getContext('2d'); 
@@ -1038,10 +1059,14 @@
                 let winPhase = false;
                 let gameRunning = true;
 
+                // Set initial letter
+                this.ui.bonusLetter.textContent = sequence[0];
+
                 const createExplosion = (x, y) => { for(let i=0; i<30; i++) { particles.push({ x: x, y: y, vx: (Math.random() - 0.5) * 15, vy: (Math.random() - 0.5) * 15, life: 1.0, color: `hsl(${Math.random()*360}, 100%, 70%)`, type: 'dot' }); } };
                 
                 const winEffect = () => {
                     winPhase = true;
+                    this.ui.bonusLetter.classList.remove('visible'); // Hide letter
                     this.audio.playBonusWin();
                     // Rain
                     for(let i=0; i<300; i++) {
@@ -1060,7 +1085,9 @@
 
                 const endGame = () => {
                     gameRunning = false; window.removeEventListener('keydown', miniHandler); 
-                    canvas.style.display = 'none'; this.ui.miniUi.classList.add('hidden'); this.ui.buttons.skip.onclick = null; 
+                    canvas.style.display = 'none'; this.ui.miniUi.classList.add('hidden'); 
+                    this.ui.bonusLetter.classList.remove('visible'); // Ensure hidden
+                    this.ui.buttons.skip.onclick = null; 
                     this.world.leaveBonusMode(); 
                     if(this.audio.bravoPlayer) { this.audio.bravoPlayer.stop(); this.audio.updateBGM(); } 
                     if(!this.ui.buttons.directNext.classList.contains('hidden')) this.startLevel(this.currentLevelIdx + 1); else this.showScreen('level');
@@ -1075,20 +1102,33 @@
                     const needed = sequence[currentIndex];
                     if (e.key.toLowerCase() === needed) {
                         // Correct!
-                        const cx = canvas.width/2; const cy = canvas.height/2;
+                        const cx = window.innerWidth/2; const cy = window.innerHeight/2;
                         createExplosion(cx, cy);
                         this.world.spawnBonusAnimal(currentIndex);
                         this.audio.playCorrect(currentIndex);
                         
+                        // Pop animation for the HTML element
+                        this.ui.bonusLetter.classList.remove('char-appear');
+                        void this.ui.bonusLetter.offsetWidth; // Trigger reflow
+                        this.ui.bonusLetter.classList.add('char-appear');
+
                         currentIndex++;
-                        if(currentIndex >= 10) winEffect();
+                        if(currentIndex >= 10) {
+                             winEffect();
+                        } else {
+                             // Next letter
+                             this.ui.bonusLetter.textContent = sequence[currentIndex];
+                        }
                     } else {
                         // Wrong
                         this.audio.playWrong();
+                        this.ui.bonusLetter.classList.add('shake'); 
+                        setTimeout(() => this.ui.bonusLetter.classList.remove('shake'), 300);
                     }
                 };
                 window.addEventListener('keydown', miniHandler);
                 
+                // Canvas loop only for background and particles now
                 const loop = () => {
                     if (!gameRunning) return;
                     canvas.width = window.innerWidth; canvas.height = window.innerHeight; 
@@ -1123,31 +1163,8 @@
                         if(p.life <= 0) { particles.splice(i, 1); i--; } 
                     }
 
-                    // Main Letter Display
-                    if(!winPhase) {
-                        const char = sequence[currentIndex];
-                        ctx.font = "bold 300px Fredoka"; // Hardcoded huge size
-                        ctx.textAlign = "center";
-                        ctx.textBaseline = "middle";
-                        
-                        // Pulsing effect
-                        const scale = 1 + Math.sin(time * 10) * 0.1;
-                        ctx.save();
-                        ctx.translate(cx, cy);
-                        ctx.scale(scale, scale);
-                        
-                        ctx.fillStyle = "rgba(0,0,0,0.2)";
-                        ctx.fillText(char, 10, 10); // Shadow
-                        
-                        ctx.fillStyle = "white";
-                        ctx.fillText(char, 0, 0);
-                        ctx.restore();
-
-                        // Progress
-                        ctx.font = "bold 40px Fredoka";
-                        ctx.fillStyle = "white"; 
-                        ctx.fillText(`${currentIndex}/10`, cx, cy + 200);
-                    } else {
+                    // BRAVO Text on Canvas (Letter is HTML now)
+                    if(winPhase) {
                         ctx.font = "bold 100px Fredoka"; 
                         ctx.fillStyle = "gold"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
                         ctx.shadowColor="black"; ctx.shadowBlur=20;
