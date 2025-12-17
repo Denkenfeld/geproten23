@@ -27,10 +27,10 @@
 
         body { margin: 0; overflow: hidden; font-family: 'Fredoka', sans-serif; background-color: #E2F0CB; color: var(--text); user-select: none; }
         
-        /* 3D Canvas (Foreground for Animals) - Z-Index High */
+        /* 3D Canvas (Foreground for Animals) */
         #canvas-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; transition: filter 0.3s; pointer-events: none; }
 
-        /* 2D Bonus Canvas (Background for Hypnosis & Letters) - Z-Index Low */
+        /* 2D Bonus Canvas (Background for Hypnosis & Letters) */
         #mini-game-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; display: none; }
 
         /* --- GLOBAL BACKGROUND (Main Game) --- */
@@ -551,7 +551,10 @@
                 this.scale = ["C4", "D4", "E4", "F4", "G4", "A4", "B4", "C5", "D5", "E5"];
                 this.bgmSequence = null;
                 this.bgmPlayer = null; 
-                this.bravoPlayer = null; // Für Win
+                
+                // Pre-load Bravo Player
+                this.bravoPlayer = new Tone.Player("bravo.mp3").toDestination();
+                this.bravoPlayer.volume.value = -5;
 
                 // Web Audio Custom
                 this.waCtx = null;
@@ -672,16 +675,12 @@
             // New Bonus Win Sound
             playBonusWin() {
                 if(!this.ready) return;
-                // Temporarily pause BGM if playing
                 if(this.bgmPlayer && this.bgmPlayer.state === 'started') this.bgmPlayer.stop();
                 
-                this.bravoPlayer = new Tone.Player({
-                    url: "bravo.mp3",
-                    autostart: true,
-                    volume: -5
-                }).toDestination();
-                // Start at 60s, play for 5s
-                this.bravoPlayer.start(Tone.now(), 60, 5);
+                // Use pre-loaded player
+                if(this.bravoPlayer) {
+                    this.bravoPlayer.start(Tone.now(), 60, 5); // 60s offset, 5s duration
+                }
             }
 
             updateBGM() {
@@ -860,17 +859,14 @@
             // --- BONUS MODE METHODS ---
             enterBonusMode() {
                 this.isBonusMode = true;
-                // Hide main elements
                 this.mascot.visible = false;
                 this.npc.visible = false;
                 this.islands.forEach(i => i.visible = false);
                 this.particles.visible = false;
                 
-                // Clear old bonus stuff
                 while(this.bonusGroup.children.length > 0) this.bonusGroup.remove(this.bonusGroup.children[0]);
                 this.bonusGroup.visible = true;
                 
-                // Adjust Camera for wide shot
                 this.camera.position.set(0, 4, 14);
                 this.camera.lookAt(0, 0, 0);
             }
@@ -878,22 +874,14 @@
             spawnBonusAnimal(index) {
                 const types = ['fox', 'unicorn', 'bear', 'bunny', 'cat', 'pig', 'dog_billy', 'dog_luni', 'dog_charlie', 'robot'];
                 const type = types[index % types.length];
-                
                 const group = new THREE.Group();
-                group.isBonus = true; // Flag for createCharacter to add snout
+                group.isBonus = true; 
                 this.createCharacter(type, group);
-                
-                // Position in line: -10 to +10
                 const xPos = -10 + (index * 2.2);
                 group.position.set(xPos, -3, 0);
-                group.scale.set(0,0,0); // Start small for pop-in
-                
-                // Look at camera
+                group.scale.set(0,0,0); 
                 group.rotation.y = 0; 
-
                 this.bonusGroup.add(group);
-
-                // Pop-in animation logic handled in animate
                 group.userData = { scale: 0, targetScale: 0.8 };
             }
 
@@ -903,8 +891,6 @@
                 this.mascot.visible = true;
                 this.islands.forEach(i => i.visible = true);
                 this.particles.visible = true;
-                
-                // Reset Camera
                 this.camera.position.set(0, 2, 8);
                 this.camera.lookAt(0, 1, 0);
             }
@@ -913,21 +899,17 @@
                 requestAnimationFrame(() => this.animate()); const delta = this.clock.getDelta(); const time = this.clock.getElapsedTime();
                 
                 if (this.isBonusMode) {
-                    // Animate bonus animals
                     this.bonusGroup.children.forEach((grp, i) => {
-                        // Pop in
                         if(grp.userData.scale < grp.userData.targetScale) {
                             grp.userData.scale += delta * 3;
                             const s = grp.userData.scale;
                             grp.scale.set(s,s,s);
                         }
-                        // Bobbing
                         grp.position.y = -3 + Math.sin(time * 5 + i) * 0.2;
-                        // Rotate slightly
                         grp.rotation.y = Math.sin(time * 2 + i) * 0.2;
                     });
                     this.renderer.render(this.scene, this.camera);
-                    return; // Skip normal animation logic
+                    return; 
                 }
 
                 if(this.animMode === 'chase') {
@@ -1031,53 +1013,44 @@
 
             // ... (Rest of game methods stay same) ...
             
-            // --- UPDATED BONUS GAME ---
+            // --- UPDATED BONUS GAME (STATIC RECAP) ---
             startMiniGame() {
                 this.showScreen('none');
                 this.ui.bgContainer.style.display = 'none';
                 this.initBackgroundEffect('none');
                 this.ui.miniUi.classList.remove('hidden'); 
                 
-                // 2D Canvas for Background/Letters
                 const canvas = document.getElementById('mini-game-canvas'); 
                 canvas.style.display = 'block';
                 const ctx = canvas.getContext('2d'); 
                 
-                // Switch 3D World to Bonus Mode
                 this.world.enterBonusMode();
 
-                // Keys: Lowercase only, alphanumeric
+                // Generate sequence of 10 letters from level keys
                 const rawKeys = LEVELS[this.currentLevelIdx].keys; 
                 const possible = rawKeys.toLowerCase().replace("shift", "").replace(/[^a-z0-9äöüß]/g, "");
+                const sequence = [];
+                for(let i=0; i<10; i++) sequence.push(possible.length > 0 ? possible.charAt(Math.floor(Math.random() * possible.length)) : "a");
                 
-                let gameRunning = true; 
-                const letters = []; 
+                let currentIndex = 0;
                 let particles = []; 
                 const animalEmojis = ['🦊', '🦄', '🐻', '🐰', '🐱', '🐷', '🤖', '🐶', '🐕', '🐩'];
-                let fedCount = 0; 
-                const maxFed = 10;
                 let winPhase = false;
+                let gameRunning = true;
 
-                const spawner = setInterval(() => {
-                    if (!gameRunning || winPhase) return;
-                    const char = possible.length > 0 ? possible.charAt(Math.floor(Math.random() * possible.length)) : "a"; 
-                    letters.push({ char: char, x: Math.random() * (canvas.width - 200) + 100, y: -250, speed: 2 + Math.random() * 3 });
-                }, 1000);
-
-                const createExplosion = (x, y) => { for(let i=0; i<30; i++) { particles.push({ x: x, y: y, vx: (Math.random() - 0.5) * 10, vy: (Math.random() - 0.5) * 10, life: 1.0, color: `hsl(${Math.random()*360}, 100%, 70%)`, type: 'dot' }); } };
+                const createExplosion = (x, y) => { for(let i=0; i<30; i++) { particles.push({ x: x, y: y, vx: (Math.random() - 0.5) * 15, vy: (Math.random() - 0.5) * 15, life: 1.0, color: `hsl(${Math.random()*360}, 100%, 70%)`, type: 'dot' }); } };
                 
                 const winEffect = () => {
                     winPhase = true;
-                    // Play Bravo Song
                     this.audio.playBonusWin();
-                    // Spawn animal rain (2D Emojis only for rain effect)
+                    // Rain
                     for(let i=0; i<300; i++) {
                         particles.push({
                             x: Math.random() * canvas.width,
                             y: Math.random() * -1000,
                             vx: 0,
                             vy: 2 + Math.random() * 5,
-                            life: 5.0, // Lasts long
+                            life: 5.0, 
                             type: 'emoji',
                             icon: animalEmojis[Math.floor(Math.random() * animalEmojis.length)]
                         });
@@ -1086,12 +1059,10 @@
                 };
 
                 const endGame = () => {
-                    gameRunning = false; clearInterval(spawner); window.removeEventListener('keydown', miniHandler); 
+                    gameRunning = false; window.removeEventListener('keydown', miniHandler); 
                     canvas.style.display = 'none'; this.ui.miniUi.classList.add('hidden'); this.ui.buttons.skip.onclick = null; 
-                    
-                    this.world.leaveBonusMode(); // Reset 3D World
-
-                    if(this.audio.bravoPlayer) { this.audio.bravoPlayer.stop(); this.audio.updateBGM(); } // Resume BGM
+                    this.world.leaveBonusMode(); 
+                    if(this.audio.bravoPlayer) { this.audio.bravoPlayer.stop(); this.audio.updateBGM(); } 
                     if(!this.ui.buttons.directNext.classList.contains('hidden')) this.startLevel(this.currentLevelIdx + 1); else this.showScreen('level');
                 };
                 
@@ -1101,31 +1072,30 @@
                     if(e.key === "Escape") { endGame(); return; }
                     if(winPhase) return;
                     
-                    const char = e.key.toLowerCase(); 
-                    const idx = letters.findIndex(l => l.char === char && l.y < canvas.height - 50);
-                    
-                    if (idx > -1) { 
-                        const l = letters[idx]; 
-                        createExplosion(l.x, l.y); 
-                        letters.splice(idx, 1); 
+                    const needed = sequence[currentIndex];
+                    if (e.key.toLowerCase() === needed) {
+                        // Correct!
+                        const cx = canvas.width/2; const cy = canvas.height/2;
+                        createExplosion(cx, cy);
+                        this.world.spawnBonusAnimal(currentIndex);
+                        this.audio.playCorrect(currentIndex);
                         
-                        // Spawn Real 3D Animal
-                        this.world.spawnBonusAnimal(fedCount);
-                        
-                        fedCount++; 
-                        this.audio.playCorrect(fedCount); 
-                        if(fedCount >= maxFed) winEffect(); 
+                        currentIndex++;
+                        if(currentIndex >= 10) winEffect();
+                    } else {
+                        // Wrong
+                        this.audio.playWrong();
                     }
                 };
                 window.addEventListener('keydown', miniHandler);
                 
                 const loop = () => {
                     if (!gameRunning) return;
-                    canvas.width = window.innerWidth; canvas.height = window.innerHeight; // Handle resize
+                    canvas.width = window.innerWidth; canvas.height = window.innerHeight; 
                     const time = Date.now() * 0.001;
-
-                    // Hypnosis Background
                     const cx = canvas.width/2; const cy = canvas.height/2;
+
+                    // Background
                     const gradient = ctx.createRadialGradient(cx, cy, 10, cx, cy, canvas.width);
                     gradient.addColorStop(0, `hsl(${(time*50)%360}, 70%, 80%)`);
                     gradient.addColorStop(0.5, `hsl(${(time*50 + 120)%360}, 70%, 70%)`);
@@ -1133,7 +1103,6 @@
                     ctx.fillStyle = gradient;
                     ctx.fillRect(0,0, canvas.width, canvas.height);
                     
-                    // Spirals
                     ctx.save();
                     ctx.translate(cx, cy);
                     ctx.rotate(time * 0.5);
@@ -1142,17 +1111,6 @@
                         ctx.strokeStyle = "rgba(255,255,255,0.2)"; ctx.lineWidth = 20; ctx.stroke();
                     }
                     ctx.restore();
-
-                    // Status
-                    if(!winPhase) {
-                        ctx.fillStyle = "white"; ctx.font = "bold 40px Fredoka"; 
-                        ctx.fillText(`Tiere retten: ${fedCount}/${maxFed}`, cx - 150, 80);
-                    } else {
-                        ctx.fillStyle = "gold"; ctx.font = "bold 80px Fredoka"; 
-                        ctx.shadowColor="black"; ctx.shadowBlur=20;
-                        ctx.fillText("BRAVO!!!", cx - 150, cy);
-                        ctx.shadowBlur=0;
-                    }
 
                     // Particles
                     for (let i = 0; i < particles.length; i++) { 
@@ -1165,15 +1123,35 @@
                         if(p.life <= 0) { particles.splice(i, 1); i--; } 
                     }
 
-                    // Letters (Draw HUGE)
+                    // Main Letter Display
                     if(!winPhase) {
-                        ctx.font = "bold 250px Fredoka"; // Set Font inside Loop!
-                        ctx.fillStyle = "white"; ctx.shadowColor="rgba(0,0,0,0.3)"; ctx.shadowBlur=10;
-                        for (let i = 0; i < letters.length; i++) { 
-                            const l = letters[i]; l.y += l.speed; 
-                            ctx.fillText(l.char, l.x, l.y); 
-                            if (l.y > canvas.height + 200) { letters.splice(i, 1); i--; } 
-                        }
+                        const char = sequence[currentIndex];
+                        ctx.font = "bold 300px Fredoka"; // Hardcoded huge size
+                        ctx.textAlign = "center";
+                        ctx.textBaseline = "middle";
+                        
+                        // Pulsing effect
+                        const scale = 1 + Math.sin(time * 10) * 0.1;
+                        ctx.save();
+                        ctx.translate(cx, cy);
+                        ctx.scale(scale, scale);
+                        
+                        ctx.fillStyle = "rgba(0,0,0,0.2)";
+                        ctx.fillText(char, 10, 10); // Shadow
+                        
+                        ctx.fillStyle = "white";
+                        ctx.fillText(char, 0, 0);
+                        ctx.restore();
+
+                        // Progress
+                        ctx.font = "bold 40px Fredoka";
+                        ctx.fillStyle = "white"; 
+                        ctx.fillText(`${currentIndex}/10`, cx, cy + 200);
+                    } else {
+                        ctx.font = "bold 100px Fredoka"; 
+                        ctx.fillStyle = "gold"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+                        ctx.shadowColor="black"; ctx.shadowBlur=20;
+                        ctx.fillText("BRAVO!!!", cx, cy);
                         ctx.shadowBlur=0;
                     }
 
