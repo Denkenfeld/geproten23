@@ -123,19 +123,7 @@
         .user-btn { padding: 10px 30px; border-radius: 25px; border: none; cursor: pointer; font-weight: bold; font-size: 1.2rem; background: transparent; color: #fff; transition: all 0.2s; text-shadow: 0 1px 2px rgba(0,0,0,0.1); }
         .user-btn.active { background: white; color: var(--primary); box-shadow: 0 2px 5px rgba(0,0,0,0.1); text-shadow: none; }
 
-        .star-header {
-            background: white;
-            padding: 10px 25px;
-            border-radius: 50px;
-            margin-bottom: 15px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-            font-size: 1.4rem;
-            font-weight: bold;
-            color: var(--dark);
-            display: flex;
-            align-items: center;
-            gap: 15px;
-        }
+        .star-header { background: white; padding: 10px 25px; border-radius: 50px; margin-bottom: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); font-size: 1.4rem; font-weight: bold; color: var(--dark); display: flex; align-items: center; gap: 15px; }
         .star-header span { display: flex; align-items: center; gap: 5px; }
         .star-header .gold { color: gold; text-shadow: 0 1px 1px rgba(0,0,0,0.2); }
 
@@ -286,6 +274,8 @@
                 <label>💥 Treffer-Effekt</label>
                 <select id="sel-expl">
                     <option value="on" selected>Feuerwerk & Einblenden</option>
+                    <option value="ultra">ULTRA Explosion 🔥</option>
+                    <option value="grow">Grow (Serie wächst) 🌱</option>
                     <option value="off">Sofort ersetzen (Aus)</option>
                 </select>
             </div>
@@ -293,7 +283,7 @@
                 <label>🤸 Tier Animation</label>
                 <select id="sel-anim">
                     <option value="jump">⬆️ Springen</option>
-                    <option value="chase">🏃 Jagd (Hin & Her)</option>
+                    <option value="chase">🏃 Jagd (Taktisch)</option>
                     <option value="spin">😵‍💫 Drehen</option>
                     <option value="wink">😉 Zwinkern</option>
                     <option value="mouth">👄 Mund bewegen</option>
@@ -742,8 +732,8 @@
                 this.animMode = 'jump'; this.setMascot("fox"); this.setTheme("forest");
                 this.createEnvironment(); this.createParticles();
                 
-                // Chase state: player runs left to right, then appears right running left
-                this.chaseState = { playerX: -8, npcX: -10, dir: 1 };
+                // Chase state: player runs left to right, npc runs too. Now independent control.
+                this.chaseState = { playerX: -8, npcX: -10, dirPlayer: 1, dirNpc: 1 };
 
                 window.addEventListener('resize', () => this.onResize());
                 this.clock = new THREE.Clock(); this.animate();
@@ -809,11 +799,9 @@
                 geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( vertices, 3 ) ); this.particles = new THREE.Points( geometry, new THREE.PointsMaterial( { color: 0xFFFFFF, size: 0.1 } ) ); this.scene.add( this.particles );
             }
             triggerReaction() {
-                if(this.animMode === 'chase') {
-                     this.mascot.position.y = 1;
-                     setTimeout(() => this.mascot.position.y = 0, 200);
-                     return;
-                }
+                // If not chase mode, trigger animations
+                if(this.animMode === 'chase') return; 
+
                 let mode = this.animMode;
                 if(mode === 'random') { const modes = ['jump', 'wink', 'spin', 'mouth', 'grow', 'shrink']; mode = modes[Math.floor(Math.random() * modes.length)]; }
                 
@@ -826,8 +814,37 @@
                 else if(mode === 'grow') { this.scaleTime = 0; this.isGrowing = true; }
                 else if(mode === 'shrink') { this.scaleTime = 0; this.isShrinking = true; }
             }
+            
+            // New Chase Movement Logic
+            stepChase(who) {
+                if(this.animMode !== 'chase') return;
+                
+                const step = 1.5; 
+                if(who === 'player') {
+                    this.chaseState.playerX += step * this.chaseState.dirPlayer;
+                    // Ping Pong check
+                    if(Math.abs(this.chaseState.playerX) > 12) {
+                        this.chaseState.dirPlayer *= -1;
+                        this.mascot.rotation.y = this.chaseState.dirPlayer > 0 ? Math.PI / 2 : -Math.PI / 2;
+                    }
+                    this.mascot.position.y = 1; 
+                    setTimeout(() => this.mascot.position.y = 0, 200); // Small jump
+                } 
+                else if(who === 'npc') {
+                    this.chaseState.npcX += step * this.chaseState.dirNpc;
+                    if(Math.abs(this.chaseState.npcX) > 12) {
+                        this.chaseState.dirNpc *= -1;
+                        this.npc.rotation.y = this.chaseState.dirNpc > 0 ? Math.PI / 2 : -Math.PI / 2;
+                    }
+                }
+                
+                // Update positions immediately
+                this.mascot.position.x = this.chaseState.playerX;
+                this.npc.position.x = this.chaseState.npcX;
+            }
+
             resetChase() {
-                this.chaseState = { playerX: -8, npcX: -10, dir: 1 };
+                this.chaseState = { playerX: -8, npcX: -10, dirPlayer: 1, dirNpc: 1 };
                 this.mascot.rotation.y = Math.PI / 2;
                 this.npc.rotation.y = Math.PI / 2;
             }
@@ -836,23 +853,13 @@
                 
                 if(this.animMode === 'chase') {
                     this.npc.visible = true;
-                    const speed = 4 * delta;
-                    this.chaseState.playerX += speed * this.chaseState.dir;
-                    this.chaseState.npcX += speed * this.chaseState.dir;
-                    
-                    if (Math.abs(this.chaseState.playerX) > 12) {
-                        this.chaseState.dir *= -1;
-                        this.mascot.rotation.y = this.chaseState.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
-                        this.npc.rotation.y = this.chaseState.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
-                    }
+                    // No automatic movement for X anymore!
+                    // Just idle animation (breathing/bobbing)
+                    if (!this.isJumping) this.mascot.position.y = Math.abs(Math.sin(time * 10)) * 0.2; // Idle bob
+                    this.npc.position.y = Math.abs(Math.sin(time * 8)) * 0.2; // Idle bob
                     
                     this.mascot.position.x = this.chaseState.playerX;
                     this.npc.position.x = this.chaseState.npcX;
-                    
-                    if (!this.isJumping) this.mascot.position.y = Math.abs(Math.sin(time * 10)) * 0.5;
-                    else this.mascot.position.y = 1 + Math.abs(Math.sin(time * 10)) * 0.5; 
-
-                    this.npc.position.y = Math.abs(Math.sin(time * 8)) * 0.5;
                     this.mascot.position.z = 1; this.npc.position.z = 1;
 
                 } else {
@@ -897,6 +904,7 @@
                 this.kbColor = 'fingers';
                 this.kbError = 'flash';
                 this.explEnabled = 'on';
+                this.streak = 0; // New Streak Counter
 
                 this.shiftMap = {
                     "^": "°", "1": "!", "2": "\"", "3": "§", "4": "$", "5": "%",
@@ -1019,14 +1027,10 @@
                 this.renderLevelSelect();
             }
 
-            // Neue Unlock Logik: Gesamt-Sterne
             checkBlockUnlock() {
                 const totalStars = Object.values(this.scores).reduce((a, b) => a + b, 0);
                 let unlocked = 0;
                 
-                // Block 0 ist immer offen.
-                // Block 1 (11-20) ab 30 Sterne
-                // Block 2 (21-30) ab 60 Sterne usw.
                 for(let b=1; b < LEVEL_BLOCKS.length; b++) {
                     if(totalStars >= b * 30) unlocked = b;
                     else break;
@@ -1038,7 +1042,6 @@
                     this.triggerUnlockEffect();
                 }
                 
-                // Update UI Header
                 document.getElementById('total-stars-val').textContent = totalStars;
                 const infoEl = document.getElementById('next-unlock-info');
                 
@@ -1269,6 +1272,7 @@
                 this.currentLevelIdx = index;
                 this.targetString = LEVELS[index].content;
                 this.currentIndex = 0; this.score = 0; this.errors = 0;
+                this.streak = 0; // Reset streak
                 this.isGameActive = false; 
                 this.typedHistory = [];
                 this.ui.bgContainer.style.display = 'none';
@@ -1302,17 +1306,36 @@
                 const rect = el.getBoundingClientRect();
                 const center = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
                 const colors = ['#FF9AA2', '#B5EAD7', '#FFB7B2', '#C7CEEA', '#FFF176'];
-                for(let i=0; i<12; i++) {
+                
+                let count = 12;
+                let scaleBase = 1;
+                let velocityBase = 100;
+
+                // Modus check
+                if (this.explEnabled === 'ultra') {
+                    count = 100;
+                    velocityBase = 250;
+                } else if (this.explEnabled === 'grow') {
+                    // Wachsen lassen, aber kappen bei 50 Partikeln
+                    count = 12 + Math.min(this.streak * 2, 50); 
+                    scaleBase = 1 + Math.min(this.streak * 0.1, 3); // Max 3x Größe
+                    velocityBase = 100 + Math.min(this.streak * 10, 200);
+                }
+
+                for(let i=0; i<count; i++) {
                     const p = document.createElement('div');
                     p.classList.add('particle');
                     document.body.appendChild(p);
                     p.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
                     p.style.left = center.x + 'px'; p.style.top = center.y + 'px';
+                    
                     const angle = Math.random() * Math.PI * 2;
-                    const velocity = 50 + Math.random() * 100;
-                    const tx = Math.cos(angle) * velocity; const ty = Math.sin(angle) * velocity;
+                    const velocity = 50 + Math.random() * velocityBase;
+                    const tx = Math.cos(angle) * velocity; 
+                    const ty = Math.sin(angle) * velocity;
+                    
                     p.animate([
-                        { transform: 'translate(0,0) scale(1)', opacity: 1 },
+                        { transform: `translate(0,0) scale(${scaleBase})`, opacity: 1 },
                         { transform: `translate(${tx}px, ${ty}px) scale(0)`, opacity: 0 }
                     ], { duration: 500 + Math.random() * 200, easing: 'ease-out' }).onfinish = () => p.remove();
                 }
@@ -1329,18 +1352,25 @@
                     this.typedHistory.push({ char: char, type: 'correct' });
                     this.audio.playCorrect(this.currentIndex); 
                     this.score += 10; 
-                    if(this.explEnabled === 'on') this.triggerCharExplosion();
+                    this.streak++; // Streak erhöhen
+
+                    if(this.explEnabled !== 'off') this.triggerCharExplosion();
+                    
                     this.currentIndex++; 
                     this.world.triggerReaction();
+                    this.world.stepChase('player'); // Spieler bewegt sich
+
                     if (this.currentIndex >= this.targetString.length) { 
                         this.levelComplete(); 
                     } else { 
-                        this.updateDisplay(this.explEnabled === 'on'); 
+                        this.updateDisplay(this.explEnabled !== 'off'); 
                         this.highlightKey(this.targetString[this.currentIndex]); 
                     }
                 } else {
                     if (char.length === 1) { 
                         this.errors++;
+                        this.streak = 0; // Streak reset
+                        
                         if (keyEl && this.kbError === 'flash') {
                             keyEl.classList.add('error-flash');
                             setTimeout(() => keyEl.classList.remove('error-flash'), 200);
@@ -1348,7 +1378,10 @@
                             keyEl.classList.add('pressed');
                         }
                         this.typedHistory.push({ char: char, type: 'wrong' });
-                        this.audio.playWrong(); this.ui.display.current.classList.add('shake'); setTimeout(() => this.ui.display.current.classList.remove('shake'), 300); 
+                        this.audio.playWrong(); 
+                        this.ui.display.current.classList.add('shake'); setTimeout(() => this.ui.display.current.classList.remove('shake'), 300); 
+                        
+                        this.world.stepChase('npc'); // Gegner bewegt sich
                     }
                 }
                 this.ui.display.score.innerText = this.score;
@@ -1434,7 +1467,6 @@
                 const textDisplay = document.getElementById('result-text-display');
                 
                 const btnDirect = this.ui.buttons.directNext;
-                // Check if next level is locked (next block logic)
                 const nextLvlIdx = this.currentLevelIdx + 1;
                 let nextLocked = false;
                 if(nextLvlIdx % 10 === 0 && nextLvlIdx < LEVELS.length) {
